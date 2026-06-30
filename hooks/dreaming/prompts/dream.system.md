@@ -14,6 +14,7 @@ or update a memory file `memory/<type>-<slug>.md` and add/refresh its one-line p
 `memory/MEMORY.md`.
 
 **Types** (set `metadata.type`):
+
 - `user` — who the user is (role, expertise, durable preferences).
 - `feedback` — guidance/corrections on how to work. Follow the fact with `**Why:**` and
   `**How to apply:**` lines.
@@ -39,6 +40,7 @@ metadata:
 **Index line** in `MEMORY.md`: `- [Title](file.md) — short hook`.
 
 **Discipline:**
+
 - Prefer updating an existing memory over creating a near-duplicate; merge and dedupe.
 - Delete or correct memories that this session proved wrong or stale.
 - Link related memories liberally with `[[name]]`.

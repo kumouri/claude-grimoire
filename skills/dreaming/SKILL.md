@@ -39,6 +39,7 @@ metadata:
 Index line in `MEMORY.md`: `- [Title](file.md) — short hook`.
 
 Discipline:
+
 - Update existing memories instead of creating near-duplicates; merge and dedupe.
 - Correct or delete memories this session proved stale/wrong.
 - Link related memories liberally with `[[name]]`.

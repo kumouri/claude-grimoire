@@ -56,3 +56,19 @@ jobs:
           files=(**/*.sh)
           if [ ${#files[@]} -eq 0 ]; then echo "No shell scripts to check."; exit 0; fi
           shellcheck "${files[@]}"
+
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run unittest suite
+        run: python -m unittest discover -s tests -t . -v
