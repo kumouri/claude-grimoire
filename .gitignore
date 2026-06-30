@@ -1,0 +1,31 @@
+# --- OS noise ---
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# Linux
+*~
+.directory
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+
+# --- Tooling / supporting code a skill or hook might ship ---
+node_modules/
+.env
+.env.*
+*.log
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
