@@ -1,0 +1,8 @@
+# Optional reconciliation sweep for Linux (cron).
+# The hooks already dream on compaction/end; this only catches sessions that
+# crashed or were archived/deleted without a clean SessionEnd.
+#
+# Install with:  crontab -e   (then paste the line below, fixing the paths)
+#
+# Every 30 minutes:
+*/30 * * * * /usr/bin/python3 /ABSOLUTE/PATH/TO/hooks/dreaming/reconcile.py >> "$HOME/.claude/dreaming/reconcile.log" 2>&1

@@ -17,6 +17,10 @@ def slug_for_cwd(cwd: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", cwd or "")
 
 
+def claude_home_projects() -> Path:
+    return claude_home() / "projects"
+
+
 def project_dir(cwd: str) -> Path:
     return claude_home() / "projects" / slug_for_cwd(cwd)
 
