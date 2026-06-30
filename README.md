@@ -12,6 +12,14 @@ build for myself: reusable **skills**, automation **hooks**, custom **slash comm
 purpose-built **subagents**. Each one is a small, self-contained artifact — collected here so
 they're easy to share, reuse, and point at from my portfolio.
 
+## ✨ Featured
+
+**🌙 [Dreaming](docs/dreaming/README.md)** — automatic session *memory consolidation*. Before
+context is compacted and when a session ends, a background "dreamer" reflects over the transcript
+and distills durable facts into long-term memory (with a bounded creative "association" pass). Pure
+Python, three selectable engines, durable + crash-safe. See the
+[architecture + diagrams](docs/dreaming/architecture.md).
+
 ## 📜 Structure
 
 | Directory | What lives here |
@@ -20,6 +28,7 @@ they're easy to share, reuse, and point at from my portfolio.
 | [`hooks/`](hooks/) | Claude Code hooks — `settings.json` snippets and their scripts. |
 | [`commands/`](commands/) | Custom slash commands. |
 | [`agents/`](agents/) | Custom subagent definitions. |
+| [`docs/`](docs/) | Architecture docs and diagrams for the artifacts here. |
 
 Each directory has its own README describing conventions and what belongs there.
 

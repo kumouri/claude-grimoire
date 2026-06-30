@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Optional reconciliation sweep for macOS (launchd).
+
+  1. Edit the two paths below: your python3 and the absolute path to reconcile.py.
+  2. Copy to ~/Library/LaunchAgents/com.ceryce.claude-dreaming.plist
+  3. launchctl load ~/Library/LaunchAgents/com.ceryce.claude-dreaming.plist
+
+  Runs every 1800 seconds (30 min). The hooks already dream on compaction/end;
+  this only catches crashed/archived sessions.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ceryce.claude-dreaming</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/ABSOLUTE/PATH/TO/hooks/dreaming/reconcile.py</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
