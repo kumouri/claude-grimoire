@@ -1,0 +1,11 @@
+{
+  "name": "mnemosyne",
+  "version": "0.1.0",
+  "description": "Reflexion memory for Claude Code — recall durable lessons into your work, reflect real failures into new lessons, and govern promotion to a shared, PR-reviewed store. Git-backed, config-driven, stdlib-only engine.",
+  "author": {
+    "name": "Ceryce Armstrong",
+    "email": "ceryce.c.armstrong@gmail.com"
+  },
+  "homepage": "https://github.com/ceryce/claude-grimoire/tree/main/mnemosyne",
+  "keywords": ["reflexion", "memory", "agent-memory", "lessons", "recall"]
+}
