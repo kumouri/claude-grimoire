@@ -15,25 +15,33 @@ presentable.
 | `hooks/` | One folder per hook: the `settings.json` snippet and the script(s) it invokes. |
 | `commands/` | Custom slash command files. |
 | `agents/` | Custom subagent definition files. |
-| `docs/` | Architecture docs + mermaid diagrams for the artifacts (e.g. `docs/dreaming/`). |
+| `docs/` | Cross-cutting architecture docs + mermaid diagrams (e.g. `docs/grimoire/`). |
 | `tests/` | Python `unittest` suite (gated by CI). Run: `python -m unittest discover -s tests -t .`. |
-| `mnemosyne/` | Self-contained reflexion-memory project (PyPI library + Claude Code plugin + MCP server). Has its own `README.md`. |
+| `mnemosyne/` | Self-contained reflexion-memory engine (package · CLI · MCP server · plugin). Own `README.md`. |
+| `morpheus/` | Self-contained session-dreaming/consolidation engine (package · CLI · MCP server · plugin). Own `README.md`. |
+| `grimoire/` | Umbrella: unified MCP server + plugin composing mnemosyne + morpheus. Own `README.md`. |
 
 When adding a new artifact, drop it in the matching directory and give it a short README or
 header comment explaining what it does and how to install/use it.
 
-## Featured artifact — Dreaming
+## Featured — Grimoire (Mnemosyne + Morpheus)
 
-`hooks/dreaming/` is automatic session **memory consolidation**: `PreCompact`/`SessionEnd` hooks
-enqueue a durable job, a detached `worker.py` reflects over the transcript delta via one of three
-engines (`headless`/`hybrid`/`deterministic`), and writes durable facts into the per-project
-two-tier memory store (`memory/<type>-<slug>.md` + `MEMORY.md`) plus a `memory/dreams/` log;
-`SessionStart` injects a recall digest. Pure Python 3 stdlib. Install globally with
-`python hooks/dreaming/install/install.py`. Design: [`docs/dreaming/architecture.md`](docs/dreaming/architecture.md).
+`grimoire/` is the umbrella: one MCP server (`grimoire.mcp_server`, all nine tools) and one plugin
+(a single `grimoire_hook.py` dispatcher) composing two independent engines — **mnemosyne** (memory)
+and **morpheus** (dreams). Each engine also ships standalone four ways (package · CLI · MCP server ·
+plugin). Design: [`docs/grimoire/architecture.md`](docs/grimoire/architecture.md).
 
-When extending it, keep `dispatch.py` non-blocking and error-swallowing, preserve the triple
-recursion guard (`--bare` + `CLAUDE_DREAMING` + `CLAUDE_CODE_CHILD_SESSION`), and keep all three
-engines emitting the same `DreamResult` contract. Add/adjust tests in `tests/`.
+`morpheus/` is automatic session **memory consolidation**: `PreCompact`/`SessionEnd` hooks enqueue a
+durable job, a detached worker reflects over the transcript delta via one of three engines
+(`headless`/`hybrid`/`deterministic`), writes durable facts into the per-project two-tier store
+(`memory/<type>-<slug>.md` + `MEMORY.md`) plus a `memory/dreams/` log; `SessionStart` injects a
+recall digest. Pure Python 3 stdlib. Install: `morpheus install` or the plugin. Design:
+[`morpheus/docs/architecture.md`](morpheus/docs/architecture.md).
+
+When extending morpheus, keep `dispatch.py` non-blocking and error-swallowing, preserve the triple
+recursion guard (`--bare` + `CLAUDE_MORPHEUS` + `CLAUDE_CODE_CHILD_SESSION`), and keep all three
+engines emitting the same `DreamResult` contract. When extending grimoire, keep it a thin composer —
+new capability belongs in an engine, surfaced through the umbrella. Add/adjust tests in `tests/`.
 
 ## Featured artifact — Mnemosyne
 
