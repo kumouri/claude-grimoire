@@ -1,0 +1,42 @@
+{
+  "name": "software-eng",
+  "id_prefix": "L",
+  "categories": ["mistake", "decision", "convention", "security", "architecture", "process"],
+  "memory_types": ["episodic", "semantic", "procedural"],
+  "confidence": {"high": 1.0, "medium": 0.85, "low": 0.6},
+  "review_states": ["local", "proposed", "approved"],
+  "stages": ["intake", "plan", "implement", "review"],
+  "recall_also_stage": "intake",
+  "stage_weight": 2,
+  "query_weight": 1,
+  "axes": [
+    {"name": "tags", "weight": 3, "match": "set", "label": "tags", "extract": {"from": "vocab"}},
+    {"name": "components", "weight": 3, "match": "set", "label": "cmp", "extract": {"allcaps": true}},
+    {"name": "work_types", "weight": 1, "match": "set", "label": "work",
+     "enum": ["new-feature", "enhancement", "migration", "refactor", "bugfix"],
+     "extract": {"from": "enum", "aliases": {"new-feature": ["feature"]}}},
+    {"name": "source_systems", "weight": 2, "match": "set", "label": "src",
+     "enum": ["monolith", "legacy-service", "third-party", "none"],
+     "extract": {"from": "enum", "aliases": {
+       "monolith": ["monolith", "legacy monolith"],
+       "legacy-service": ["legacy service"],
+       "third-party": ["third party", "3rd party", "vendor"]}}},
+    {"name": "services", "weight": 2, "match": "glob", "label": "svc",
+     "extract": {"regex": ["\\b([a-z0-9]+-service)\\b", "\\b([A-Z][A-Za-z0-9]+Service)\\b"]}},
+    {"name": "endpoint_patterns", "weight": 2, "match": "glob_scalar", "context": "endpoint", "label": "ep"}
+  ],
+  "vocab": [
+    "idempotency", "replay", "dedup", "transaction", "atomicity", "concurrency", "race-condition",
+    "retry", "rollback", "timeout", "rate-limit", "backpressure", "cache", "pagination", "versioning",
+    "migration", "schema", "index", "backfill", "cutover", "feature-flag", "auth", "authz", "authn",
+    "session", "token", "pii", "audit", "security", "compliance", "validation", "logging",
+    "observability", "webhook", "queue", "batch", "cron", "n-plus-one", "soft-delete", "state-machine"
+  ],
+  "stopwords": [
+    "SQL", "API", "ID", "PII", "URL", "URI", "HTTP", "HTTPS", "GET", "PUT", "POST", "DELETE", "PATCH",
+    "JSON", "YAML", "REST", "GRPC", "DTO", "CRUD", "CI", "CD", "TODO", "FIXME", "MVP", "ADR", "UI",
+    "UX", "FK", "PK", "OK", "AWS", "GCP", "K8S", "JWT", "CORS", "CSRF", "XSS", "SDK", "CLI", "TLS"
+  ],
+  "thresholds": {"dup": 0.6, "prune_max_age_days": 180, "prune_cap": 200},
+  "recall": {"top": 6, "min_score": 0.5, "budget": 1800}
+}

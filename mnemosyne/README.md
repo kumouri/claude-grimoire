@@ -1,0 +1,151 @@
+# Mnemosyne
+
+**A generic, git-backed reflexion memory for agent pipelines.** An agent (or a team) captures
+durable *lessons* from its work, recalls the relevant ones into future work, and governs
+promotion of local lessons to a shared, PR-reviewed store. It implements the Reflexion loop
+([Shinn et al., 2023](https://arxiv.org/abs/2303.11366)) with a domain-agnostic, config-driven
+recall engine and five hygiene mechanisms that keep signal above noise.
+
+> Named for Mnemosyne, the Greek titaness of memory.
+
+The engine is **stdlib-only Python** (no runtime dependencies) and uses **git as both the store
+and the distribution channel**. It ships in three forms — a **CLI/library**, a **Claude Code
+plugin**, and an **MCP server** — all over the same engine.
+
+## The loop
+
+```
+        recall relevant lessons                 reflect feedback into a lesson
+   (before you plan/implement) ──▶ apply ──▶ do the work ──▶ (a real, reusable miss)
+              ▲                                                        │
+              └──────────────── promote (local ▶ shared, human-reviewed) ◀┘
+```
+
+- **Recall** durable lessons for the task and **apply** them.
+- **Announce** which lessons you applied (transparency — never silent memory).
+- **Reflect / capture** when a real, reusable lesson emerges.
+- **Promote** a good local lesson so the team gets it (a human reviews the PR).
+
+## Install
+
+Pick whichever surface fits — they all drive the same git-backed store.
+
+**1. CLI / Python library** (the foundation)
+
+```bash
+pip install mnemosyne-reflexion          # or: pip install "mnemosyne-reflexion[mcp]" for the MCP server
+mnemosyne --repo ./my-memory init --example software-eng
+```
+
+```python
+import mnemosyne as mn
+mn.recall("migrating the ledger POST endpoint", stage="plan")
+```
+
+**2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start) +
+`/recall`, `/reflect`, `/promote` commands. Install the `mnemosyne` plugin from this repo, then set
+`MNEMOSYNE_REPO` to your memory repo. (The plugin's hooks call the `mnemosyne` CLI, so
+`pip install mnemosyne-reflexion` first.)
+
+**3. MCP server** — the same operations as MCP tools for any MCP client:
+
+```bash
+claude mcp add mnemosyne -e MNEMOSYNE_REPO=/path/to/memory-repo -- python -m mnemosyne.mcp_server
+```
+
+## Quickstart (CLI)
+
+```bash
+export MNEMOSYNE_REPO=./my-memory
+mnemosyne init --example software-eng           # scaffold memory/ + a config
+
+# recall before starting work
+mnemosyne recall --query "adding a new POST that mutates customer PII" --stage implement
+
+# reflect a real failure into a lesson (lands in your local tier)
+mnemosyne reflect \
+  --title "Pin idempotency for every new POST endpoint" \
+  --lesson "Decide the idempotency contract up front and add it as an acceptance criterion." \
+  --reflection-of "A new POST double-posted on replay because idempotency was never specified." \
+  --tags idempotency,replay --stage plan --confidence high
+
+# share it with the team (moves local ▶ shared, stages a review PR)
+mnemosyne promote L-0006
+```
+
+## Configuration
+
+A `mnemosyne.config.json` (resolved from `--config`, `$MNEMOSYNE_CONFIG`,
+`<repo>/mnemosyne.config.json`, or the bundled default) makes the engine domain-agnostic. It
+defines the lifecycle **stages**, the recall **axes** (each with a `weight` and a `match` strategy:
+`set`, `glob`, or `glob_scalar`), a controlled **vocab** + **stopwords** for extracting context
+from a brief, and the enums/thresholds. Adding an axis to the config automatically adds its CLI
+flag and makes it scored — **no code change**.
+
+Two examples ship: `default` (minimal — tags + stages + free-text) and `software-eng` (tags,
+components, work-types, source-systems, services, endpoint-patterns). Inspect the active config
+with `mnemosyne config`.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
+| `capture` / `add` | Save a decision/convention/… to the local tier. |
+| `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
+| `promote <id>` | Move a local lesson to shared + stage the review PR (governance gate). |
+| `sync` | `git pull` the shared memory (refresh before work). |
+| `render` | Regenerate `memory/LESSONS.md` from the JSONL. |
+| `list` / `show` / `stats` | Browse and summarize lessons. |
+| `validate` | Schema + spine consistency (exit 0 ok / 1 problems). |
+| `prune` | Retire (never delete) aged / over-cap low-value lessons (dry-run unless `--apply`). |
+| `hygiene` | Health report: duplicates, never-recalled, cap headroom, prune candidates. |
+| `init` | Scaffold a memory repo (`--example <name>` seeds a config). |
+| `config` | Print the resolved active config and its source. |
+| `selftest` | Zero-dependency test suite. |
+
+Everything is also available as the Python API (`mn.recall/capture/reflect/promote/prune/…`) and
+as MCP tools.
+
+## Layout
+
+```
+mnemosyne/
+├── pyproject.toml                 # PyPI package (console script + [mcp] extra)
+├── src/mnemosyne/
+│   ├── core.py                    # the engine (axis-driven scorer, hygiene, git)
+│   ├── config.py                  # config loader/validator
+│   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
+│   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/prune/hygiene)
+│   └── data/                      # bundled schema + default & software-eng configs
+├── plugin/                        # Claude Code plugin (skill + hooks + commands)
+├── memory/                        # a working demo store (lessons.jsonl + generated LESSONS.md)
+├── mnemosyne.config.json          # this repo's active config (software-eng) — also a demo
+└── docs/design.md                 # architecture, recall algorithm, hygiene, governance
+```
+
+`memory/local.jsonl` and `memory/usage.local.json` are per-developer and gitignored; only
+`memory/lessons.jsonl` (+ the generated `LESSONS.md`) is committed and shared.
+
+## Two tiers & transparency
+
+- **local** (`memory/local.jsonl`, gitignored) — instant, per-developer capture.
+- **shared** (`memory/lessons.jsonl`, committed) — team-wide truth; entered only via a reviewed
+  promotion PR (see [`docs/lesson-review-checklist.md`](docs/lesson-review-checklist.md)).
+
+Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` line meant to be relayed
+verbatim. Memory is never applied silently and never shared unreviewed.
+
+## Development
+
+```bash
+PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
+```
+
+The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via
+the `[mcp]` extra).
+
+---
+
+Part of [claude-grimoire](../README.md) — a collection of standalone Claude Code artifacts.
+MIT licensed.

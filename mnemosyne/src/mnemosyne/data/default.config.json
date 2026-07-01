@@ -1,0 +1,19 @@
+{
+  "name": "default",
+  "id_prefix": "L",
+  "categories": ["mistake", "decision", "convention", "security", "architecture", "process"],
+  "memory_types": ["episodic", "semantic", "procedural"],
+  "confidence": {"high": 1.0, "medium": 0.85, "low": 0.6},
+  "review_states": ["local", "proposed", "approved"],
+  "stages": ["intake", "plan", "implement", "review"],
+  "recall_also_stage": "intake",
+  "stage_weight": 2,
+  "query_weight": 1,
+  "axes": [
+    {"name": "tags", "weight": 3, "match": "set", "label": "tags", "extract": {"from": "vocab"}}
+  ],
+  "vocab": [],
+  "stopwords": [],
+  "thresholds": {"dup": 0.6, "prune_max_age_days": 180, "prune_cap": 200},
+  "recall": {"top": 6, "min_score": 0.5, "budget": 1800}
+}
