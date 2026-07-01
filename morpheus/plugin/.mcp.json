@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "morpheus": {
+      "command": "python",
+      "args": ["-m", "morpheus.mcp_server"]
+    }
+  }
+}

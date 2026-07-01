@@ -12,23 +12,32 @@ build for myself: reusable **skills**, automation **hooks**, custom **slash comm
 purpose-built **subagents**. Each one is a small, self-contained artifact — collected here so
 they're easy to share, reuse, and point at from my portfolio.
 
-## ✨ Featured
+## ✨ Featured — Grimoire
 
-**🌙 [Dreaming](docs/dreaming/README.md)** — automatic session *memory consolidation*. Before
-context is compacted and when a session ends, a background "dreamer" reflects over the transcript
-and distills durable facts into long-term memory (with a bounded creative "association" pass). Pure
-Python, three selectable engines, durable + crash-safe. See the
-[architecture + diagrams](docs/dreaming/architecture.md).
+**📖 [Grimoire](grimoire/)** — the book that holds both. A thin umbrella (one MCP server + one
+plugin) uniting two memory engines:
+
+- 🧠 **[Mnemosyne](mnemosyne/)** — reflexion *lessons* memory (recall / reflect / promote);
+  git-backed, PR-governed, deliberate.
+- 🌙 **[Morpheus](morpheus/)** — automatic session *dreaming* / consolidation (dream / wake);
+  background, per-project, crash-safe.
+
+Each engine ships four ways — **package · CLI · MCP server · plugin** — and stands alone; Grimoire
+composes both and exposes all nine tools on one server. Architecture + diagrams:
+[docs/grimoire/architecture.md](docs/grimoire/architecture.md).
 
 ## 📜 Structure
 
 | Directory | What lives here |
 | --- | --- |
-| [`skills/`](skills/) | Custom Skills — `SKILL.md` packages and their supporting files. |
-| [`hooks/`](hooks/) | Claude Code hooks — `settings.json` snippets and their scripts. |
-| [`commands/`](commands/) | Custom slash commands. |
+| [`grimoire/`](grimoire/) | The umbrella: unified MCP server + plugin composing both engines. |
+| [`mnemosyne/`](mnemosyne/) | Reflexion-lessons memory engine (package · CLI · MCP server · plugin). |
+| [`morpheus/`](morpheus/) | Session dreaming / consolidation engine (package · CLI · MCP server · plugin). |
+| [`skills/`](skills/) | Standalone custom Skills not tied to an engine. |
+| [`hooks/`](hooks/) | Standalone Claude Code hooks. |
+| [`commands/`](commands/) | Standalone custom slash commands. |
 | [`agents/`](agents/) | Custom subagent definitions. |
-| [`docs/`](docs/) | Architecture docs and diagrams for the artifacts here. |
+| [`docs/`](docs/) | Cross-cutting architecture docs and diagrams (e.g. `docs/grimoire/`). |
 
 Each directory has its own README describing conventions and what belongs there.
 

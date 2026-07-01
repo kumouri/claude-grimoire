@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "grimoire": {
+      "command": "python",
+      "args": ["-m", "grimoire.mcp_server"]
+    }
+  }
+}
