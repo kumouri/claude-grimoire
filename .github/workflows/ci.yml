@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Lint Markdown
+        run: npx --yes markdownlint-cli2 "**/*.md"
+
+      - name: Validate JSON
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(**/*.json)
+          if [ ${#files[@]} -eq 0 ]; then echo "No JSON files to validate."; exit 0; fi
+          for f in "${files[@]}"; do
+            echo "Checking $f"
+            jq empty "$f"
+          done
+
+      - name: Validate YAML
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(**/*.yml **/*.yaml)
+          if [ ${#files[@]} -eq 0 ]; then echo "No YAML files to validate."; exit 0; fi
+          for f in "${files[@]}"; do
+            echo "Checking $f"
+            yq eval 'true' "$f" > /dev/null
+          done
+
+      - name: Shellcheck hook scripts
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(**/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then echo "No shell scripts to check."; exit 0; fi
+          shellcheck "${files[@]}"
+
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run unittest suite
+        run: python -m unittest discover -s tests -t . -v

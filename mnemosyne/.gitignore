@@ -1,0 +1,12 @@
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime memory tiers (per-developer, never committed)
+memory/local.jsonl
+memory/usage.local.json

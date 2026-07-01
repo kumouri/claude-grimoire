@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnemosyne-reflexion"
+version = "0.1.0"
+description = "A generic, git-backed reflexion memory for agent pipelines — recall durable lessons, reflect failures, govern promotion."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Ceryce Armstrong", email = "ceryce.c.armstrong@gmail.com" }]
+keywords = ["reflexion", "agent-memory", "llm", "claude", "mcp", "episodic-memory"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+]
+# The engine is stdlib-only. No runtime dependencies.
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2"]
+
+[project.scripts]
+mnemosyne = "mnemosyne.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ceryce/claude-grimoire"
+Source = "https://github.com/ceryce/claude-grimoire/tree/main/mnemosyne"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mnemosyne = ["data/*.json", "data/schema/*.json"]
