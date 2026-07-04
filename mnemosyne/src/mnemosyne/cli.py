@@ -84,13 +84,21 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     rf.add_argument("--reflection-of", dest="reflection_of", help="what went wrong (the feedback that triggered this)")
     rf.set_defaults(func=cmd_reflect)
 
-    pr = sub.add_parser("promote", help="move a local lesson to shared + stage the review PR (the governance gate)")
-    pr.add_argument("id")
+    store_tiers = [s["tier"] for s in cfg.stores]
+    pr = sub.add_parser("promote", help="promote lesson(s) to shared / a broader store + stage the review PR")
+    pr.add_argument("id", nargs="*", help="lesson id(s); one or many")
+    pr.add_argument("--to", choices=["shared"] + store_tiers, default="shared",
+                    help="destination tier: 'shared' (this repo, default) or a configured store (e.g. team)")
+    pr.add_argument("--from-file", dest="from_file",
+                    help="manifest JSON mapping tiers to id lists: [{\"tier\":\"team\",\"lessons\":[\"L-0007\"]}]")
     pr.add_argument("--push", action="store_true", help="also create the branch, commit, and push (needs git+remote)")
     pr.set_defaults(func=cmd_promote)
 
-    s = sub.add_parser("sync", help="git pull the shared memory (refresh before starting work)")
+    s = sub.add_parser("sync", help="git pull the shared memory + every configured store (refresh before work)")
     s.set_defaults(func=cmd_sync)
+
+    st_ = sub.add_parser("stores", help="list configured shared stores (broader tiers) + their clone/pull status")
+    st_.set_defaults(func=cmd_stores)
 
     rn = sub.add_parser("render", help="regenerate memory/LESSONS.md from the JSONL")
     rn.set_defaults(func=cmd_render)
@@ -98,7 +106,8 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     li = sub.add_parser("list", help="list lessons (filterable)")
     li.add_argument("--category", choices=cfg.categories)
     li.add_argument("--status", choices=["active", "superseded", "retired"])
-    li.add_argument("--tier", choices=["shared", "local"])
+    li.add_argument("--tier", choices=["local", "shared"] + store_tiers)
+    li.add_argument("--store", choices=["primary"] + store_tiers, help="filter by origin repo")
     li.set_defaults(func=cmd_list)
 
     sh = sub.add_parser("show", help="print one lesson as JSON")
@@ -148,8 +157,11 @@ def cmd_recall(cfg, repo, args):
     if args.from_brief:
         from_text = sys.stdin.read() if args.from_brief == "-" else Path(args.from_brief).read_text(encoding="utf-8")
     ctx = core.build_recall_context(cfg, from_text=from_text, query=args.query, axes=axes, stage=args.stage)
-    ranked, tier = core.recall(cfg, repo, ctx, top=args.top, min_score=args.min_score)
+    notes = []
+    ranked, tier = core.recall(cfg, repo, ctx, top=args.top, min_score=args.min_score, notes=notes)
     print(core.render_digest(cfg, ranked, repo, tier, args.format, args.budget))
+    for n in notes:  # unreachable stores never fail recall — just report them
+        print(f"  note: {n}", file=sys.stderr)
     return 0
 
 
@@ -212,15 +224,25 @@ def cmd_reflect(cfg, repo, args):
                                  kind_label="reflexion: captured from feedback on a prior run")
 
 
-def cmd_promote(cfg, repo, args):
-    res = core.promote(cfg, repo, args.id)
-    if args.format == "json":
-        print(json.dumps(res, indent=2))
-        return 0
+def _load_manifest(path):
+    """Read a promote manifest and normalize to [{'tier':.., 'lessons':[..]}, ..].
+
+    Accepts the array form or a loose {tier: [ids]} object."""
+    raw = sys.stdin.read() if path == "-" else Path(path).read_text(encoding="utf-8")
+    doc = json.loads(raw)
+    if isinstance(doc, dict):
+        return [{"tier": t, "lessons": core.csv(ids)} for t, ids in doc.items()]
+    groups = []
+    for g in doc:
+        groups.append({"tier": g["tier"], "lessons": core.csv(g.get("lessons"))})
+    return groups
+
+
+def _print_shared_promote(cfg, repo, res, push):
     print(f"PROMOTED: {res['id']} moved local -> shared and marked review=proposed — \"{res['title']}\".")
     branch = res["branch"]
     if res["is_git"]:
-        if args.push:
+        if push:
             core.git(repo, "checkout", "-b", branch)
             core.git(repo, "add", "memory/lessons.jsonl", "memory/local.jsonl", "memory/LESSONS.md")
             core.git(repo, "commit", "-m", f"reflexion: promote {res['id']} — {res['title']}")
@@ -237,16 +259,112 @@ def cmd_promote(cfg, repo, args):
     else:
         print("  note: not a git repo yet — `git init` the memory repo to enable PR promotion.")
     print(f"  Announce: {res['id']} was promoted for team review.")
+
+
+def _print_export(res, push):
+    tier = res["tier"]
+    exported = res.get("exported", [])
+    if not exported and res.get("skipped"):
+        print(f"EXPORT: nothing exported to {tier}.")
+    else:
+        ids = ", ".join(f"{e['local_id']}->{e['remote_id']}" for e in exported)
+        print(f"EXPORTED: {len(exported)} lesson(s) to the '{tier}' store as proposed ({ids}).")
+        print(f"  local originals kept + marked proposed; they retire automatically on `sync` once merged upstream.")
+    for sk in res.get("skipped", []):
+        print(f"  skipped {sk['id']}: {sk['reason']}")
+    store_repo, branch = res.get("store_repo"), res.get("branch")
+    if exported and store_repo and branch:
+        add = ["memory/lessons.jsonl", "memory/LESSONS.md"]
+        if res.get("is_git"):
+            if push:
+                core.git(Path(store_repo), "checkout", "-b", branch)
+                core.git(Path(store_repo), "add", *add)
+                core.git(Path(store_repo), "commit", "-m", f"reflexion: export to {tier} ({branch})")
+                rc, _, err = core.git(Path(store_repo), "push", "-u", "origin", branch)
+                print(f"  pushed branch {branch} in the {tier} store" if rc == 0 else f"  push failed: {err}")
+                print(f"  open the PR: gh pr create --fill --head {branch}")
+            else:
+                print(f"  Stage the review PR in the '{tier}' store repo:")
+                print(f"    git -C \"{store_repo}\" checkout -b {branch}")
+                print(f"    git -C \"{store_repo}\" add {' '.join(add)}")
+                print(f"    git -C \"{store_repo}\" commit -m \"reflexion: export to {tier} ({branch})\"")
+                print(f"    git -C \"{store_repo}\" push -u origin {branch} && gh pr create --fill --head {branch}")
+        else:
+            print(f"  note: the {tier} store is not a git repo — `git init` it to enable PR promotion.")
+
+
+def cmd_promote(cfg, repo, args):
+    # Build the list of (tier, [ids]) groups to promote.
+    if args.from_file:
+        groups = _load_manifest(args.from_file)
+    else:
+        if not args.id:
+            print("error: give one or more lesson ids, or --from-file a manifest", file=sys.stderr)
+            return 2
+        groups = [{"tier": args.to, "lessons": list(args.id)}]
+
+    results = []
+    for g in groups:
+        tier, ids = g["tier"], g["lessons"]
+        try:
+            res = core.export(cfg, repo, ids, tier)
+        except core.EngineError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return getattr(e, "code", 2)
+        results.append(res)
+
+    if args.format == "json":
+        print(json.dumps(results if args.from_file else results[0], indent=2))
+        return 0
+
+    for res in results:
+        if res.get("same_repo"):
+            for r in res["results"]:
+                _print_shared_promote(cfg, repo, r, args.push)
+        else:
+            _print_export(res, args.push)
+    return 0
+
+
+def cmd_stores(cfg, repo_arg, args):
+    from . import stores as _stores
+    sts = _stores.resolve_stores(cfg)
+    if args.format == "json":
+        out = []
+        for st in sts:
+            d = _stores.store_dir(st)
+            out.append({"tier": st.tier, "prefix": st.prefix, "url": st.url, "path": st.path,
+                        "readonly": st.readonly, "cache_dir": str(d),
+                        "cloned": d.exists() and _stores.is_memory_repo(d)})
+        print(json.dumps(out, indent=2))
+        return 0
+    if not sts:
+        print("STORES: none configured. Add a `stores` array to mnemosyne.config.json to federate "
+              "with team/enterprise memory repos.")
+        return 0
+    print(f"STORES: {len(sts)} configured shared tier(s):")
+    for st in sts:
+        d = _stores.store_dir(st)
+        where = st.path or st.url
+        status = "ready" if (d.exists() and _stores.is_memory_repo(d)) else ("not cloned" if st.url else "missing")
+        ro = " [readonly]" if st.readonly else ""
+        print(f"  {st.tier:<12} ({st.prefix}-) {status:<11} {where}{ro}")
+        print(f"               cache: {d}")
     return 0
 
 
 def cmd_sync(cfg, repo, args):
     res = core.sync(cfg, repo)
-    if not res["ok"]:
-        print(f"SYNC: git pull failed: {res['error']}")
-        return 1
-    print(f"SYNC: shared reflexion memory up to date @ {res['sha']} — {res['out']}")
-    return 0
+    if res["ok"]:
+        print(f"SYNC: shared reflexion memory up to date @ {res['sha']} — {res['out']}")
+    else:
+        print(f"SYNC: primary git pull failed: {res['error']}")
+    for s in res.get("stores", []):
+        state = f"ok @ {s['sha']}" if s["ok"] else f"skipped: {s['note']}"
+        print(f"  store {s['tier']}: {state}")
+    if res.get("retired"):
+        print(f"  retired-on-merge (approved upstream): {', '.join(res['retired'])}")
+    return 0 if res["ok"] else 1
 
 
 def cmd_render(cfg, repo, args):
@@ -257,7 +375,8 @@ def cmd_render(cfg, repo, args):
 
 
 def cmd_list(cfg, repo, args):
-    rows = core.list_lessons(cfg, repo, category=args.category, status=args.status, tier_filter=args.tier)
+    rows = core.list_lessons(cfg, repo, category=args.category, status=args.status,
+                             tier_filter=args.tier, store_filter=getattr(args, "store", None))
     if args.format == "json":
         print(json.dumps([{"id": l["id"], "category": l["category"], "tier": t, "status": l.get("status"),
                            "confidence": l["confidence"], "title": l["title"]} for l, t in rows], indent=2))
@@ -279,7 +398,7 @@ def cmd_stats(cfg, repo, args):
         print(json.dumps(s, indent=2))
         return 0
     print(f"STATS: {s['total']} lessons ({s['active']} active, {s['retired']} retired) @ {s['sha']}")
-    print(f"  tiers: shared={s['shared']} local={s['local']}")
+    print("  tiers: " + ", ".join(f"{k}={v}" for k, v in sorted(s.get("by_tier", {}).items())))
     print("  by category: " + ", ".join(f"{k}={v}" for k, v in sorted(s["by_category"].items())))
     if s["most_used"]:
         print("  most-used: " + ", ".join(f"{i}({n})" for i, n in s["most_used"]))
@@ -373,7 +492,7 @@ def cmd_selftest(cfg, repo, args):
 def run_selftest() -> int:
     import tempfile
     import shutil
-    from .config import load_named_example
+    from .config import Config, load_named_example
 
     cfg = load_named_example("software-eng")
     fails = []
@@ -384,6 +503,7 @@ def run_selftest() -> int:
             fails.append(name)
 
     tmp = Path(tempfile.mkdtemp(prefix="mnemosyne-selftest-"))
+    tmp2 = Path(tempfile.mkdtemp(prefix="mnemosyne-selftest-store-"))
     try:
         (tmp / "memory").mkdir()
         seed = {"id": "L-0001", "title": "Pin idempotency for new POST", "category": "mistake",
@@ -488,8 +608,72 @@ def run_selftest() -> int:
         h = core.hygiene(cfg, tmp, cap=200, max_age_days=180)
         check("hygiene report returns a summary", "active" in h and h["active"] >= 1)
 
+        # --- federation: additional git repos as broader shared tiers (hermetic, path-based) ---
+        (tmp2 / "memory").mkdir(parents=True)
+        team_seed = {"id": "T-0001", "title": "Enterprise structured logging standard",
+                     "category": "convention", "memory_type": "semantic",
+                     "lesson": "All services emit structured JSON logs.",
+                     "trigger": {"tags": ["logging", "observability"]}, "confidence": "high",
+                     "status": "active", "review": {"state": "approved"}, "created": core.today(), "uses": 0}
+        core.write_jsonl(core.shared_path(tmp2), [team_seed])
+        cfgf = Config({**cfg.as_dict(), "stores": [{"tier": "team", "prefix": "T", "path": str(tmp2)}]})
+
+        rankedf, tierf = core.recall(cfgf, tmp, core.build_recall_context(cfgf, axes={"tags": "logging"}))
+        check("recall federates a team-store lesson with tier=team",
+              any(l["id"] == "T-0001" and tierf.get("T-0001") == "team" for l, _, _ in rankedf))
+
+        capf = core.capture(cfgf, tmp, {"title": "Prefer composed helpers over deep class trees",
+                                        "lesson": "Compose small helpers instead of deep inheritance.",
+                                        "category": "decision", "confidence": "medium",
+                                        "trigger": {"tags": "composition,design"}})
+        local_id = capf["id"]
+        check("capture into a federated repo still lands local", capf["tier"] == "local")
+
+        dupf = core.capture(cfgf, tmp, {"title": "Enterprise structured logging standard",
+                                        "lesson": "All services emit structured JSON logs.",
+                                        "category": "convention", "confidence": "medium",
+                                        "trigger": {"tags": "logging,observability"}})
+        check("cross-store dedup warns instead of banking a team-store near-dup",
+              dupf["action"] == "cross_store_duplicate" and dupf["dup_id"] == "T-0001" and dupf["tier"] == "team")
+
+        exp = core.export(cfgf, tmp, [local_id], "team")
+        remote_id = exp["exported"][0]["remote_id"]
+        team_by_id = {l["id"]: l for l in core.read_jsonl(core.shared_path(tmp2))}
+        check("export re-ids under the store prefix + marks proposed + back-refs the origin",
+              remote_id.startswith("T-") and remote_id != "T-0001"
+              and team_by_id[remote_id]["review"]["state"] == "proposed"
+              and team_by_id[remote_id]["source"]["exported_from"] == local_id)
+        orig = {l["id"]: l for l in core.read_jsonl(core.local_path(tmp))}[local_id]
+        check("export keeps the local original + records exported_to",
+              orig["review"]["state"] == "proposed"
+              and orig["source"]["exported_to"] == {"tier": "team", "remote_id": remote_id})
+
+        rankedc, _tc = core.recall(cfgf, tmp, core.build_recall_context(cfgf, axes={"tags": "composition"}))
+        shownc = [l["id"] for l, _, _ in rankedc]
+        check("recall collapses the exported original against its upstream twin",
+              not (local_id in shownc and remote_id in shownc))
+
+        team_by_id[remote_id]["review"]["state"] = "approved"
+        core.write_jsonl(core.shared_path(tmp2), list(team_by_id.values()))
+        syncres = core.sync(cfgf, tmp)
+        check("sync retires the local original once its export is approved upstream",
+              local_id in syncres.get("retired", []))
+        retired = {l["id"]: l for l in core.read_jsonl(core.local_path(tmp))}[local_id]
+        check("retired original is superseded_by the remote id (kept for audit)",
+              retired["status"] == "retired" and retired["superseded_by"] == remote_id)
+
+        vf = core.validate(cfgf, tmp)
+        check("validate accepts cross-prefix ids + refs across stores", vf["ok"])
+
+        notes = []
+        cfgm = Config({**cfg.as_dict(), "stores": [{"tier": "team", "prefix": "T", "path": str(tmp / "no-such-store")}]})
+        rankedm, _tm = core.recall(cfgm, tmp, core.build_recall_context(cfgm, axes={"tags": "idempotency"}), notes=notes)
+        check("an unreachable store never fails recall — it is skipped with a note",
+              len(notes) >= 1 and any(l["id"] == "L-0001" for l, _, _ in rankedm))
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp2, ignore_errors=True)
 
     print(f"\nSELFTEST: {'ALL PASS' if not fails else str(len(fails)) + ' FAILURE(S): ' + ', '.join(fails)}")
     return 1 if fails else 0
@@ -498,7 +682,7 @@ def run_selftest() -> int:
 # ----------------------------------------------------------------------------- entrypoint
 
 
-NO_REPO_CMDS = {"init", "config", "selftest"}
+NO_REPO_CMDS = {"init", "config", "selftest", "stores"}
 
 
 def main(argv=None):

@@ -25,6 +25,19 @@ keys fall back to the bundled default):
   stopwords            ALLCAPS tokens to ignore when a "set/allcaps" axis extracts tokens
   thresholds           {dup, prune_max_age_days, prune_cap}
   recall               {top, min_score, budget} defaults for the recall digest
+  stores               additional shared memory repos (broader tiers) — see below
+
+Each entry in `stores` is a broader, shared memory tier the primary repo federates with
+(recall reads it; `promote --to <tier>` writes to it). The primary repo keeps its own
+`local` + `shared` tiers; a store is a *separate* mnemosyne memory repo:
+
+  tier        the tier label, e.g. "team" or "enterprise" (must be unique; not local/shared)
+  prefix      the lesson id prefix for lessons living in this store (e.g. "T"); must be unique
+              across all stores AND the primary id_prefix, so federated ids never collide
+  url         git URL mnemosyne clones (into $MNEMOSYNE_CACHE, else ~/.mnemosyne/stores) and pulls
+  path        alternatively, a path to an already-present memory repo (offline / tests); one of
+              url|path is required (path wins if both are given)
+  readonly    optional; if true, `promote --to <tier>` refuses to write to it (default false)
 
 Each entry in `axes` is a dimension recall scores a lesson on:
 
@@ -89,6 +102,7 @@ class Config:
         self.recall_top = int(rc.get("top", 6))
         self.recall_min_score = float(rc.get("min_score", 0.5))
         self.recall_budget = int(rc.get("budget", 1800))
+        self.stores = _norm_stores(d.get("stores", []))
         _validate(self)
 
     def axis(self, name: str):
@@ -117,7 +131,15 @@ class Config:
             "thresholds": {"dup": self.dup_threshold, "prune_max_age_days": self.prune_max_age_days,
                            "prune_cap": self.prune_cap},
             "recall": {"top": self.recall_top, "min_score": self.recall_min_score, "budget": self.recall_budget},
+            "stores": self.stores,
         }
+
+    # store helpers ----------------------------------------------------------
+    def store(self, tier: str):
+        for s in self.stores:
+            if s["tier"] == tier:
+                return s
+        return None
 
 
 def _norm_axis(a: dict) -> dict:
@@ -130,6 +152,32 @@ def _norm_axis(a: dict) -> dict:
     out.setdefault("label", out["name"])
     if out["match"] not in ("set", "glob", "glob_scalar"):
         raise ConfigError(f"axis '{out['name']}': unknown match '{out['match']}'")
+    return out
+
+
+def _norm_stores(raw) -> list:
+    """Normalize the `stores` list into validated plain dicts (kept dict-only so config.py
+    never imports stores.py). Uniqueness/prefix checks happen in _validate against id_prefix."""
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise ConfigError("config.stores must be a list of {tier, prefix, url|path} objects")
+    out = []
+    for s in raw:
+        if not isinstance(s, dict):
+            raise ConfigError(f"config.stores entry must be an object: {s!r}")
+        tier = s.get("tier")
+        prefix = s.get("prefix")
+        if not tier or not prefix:
+            raise ConfigError(f"store entry needs both 'tier' and 'prefix': {s!r}")
+        if not s.get("url") and not s.get("path"):
+            raise ConfigError(f"store '{tier}' needs a 'url' (to clone) or a 'path' (existing repo)")
+        out.append({
+            "tier": str(tier), "prefix": str(prefix),
+            "url": s.get("url") or None, "path": s.get("path") or None,
+            "readonly": bool(s.get("readonly", False)),
+            "branch": s.get("branch") or None,
+        })
     return out
 
 
@@ -167,6 +215,17 @@ def _validate(cfg: "Config") -> None:
     names = [a["name"] for a in cfg.axes]
     if len(names) != len(set(names)):
         raise ConfigError("duplicate axis name in config.axes")
+    # stores: unique, non-reserved tier labels; prefixes unique across stores + the primary
+    tiers = [s["tier"] for s in cfg.stores]
+    if len(tiers) != len(set(tiers)):
+        raise ConfigError("duplicate tier label in config.stores")
+    for t in tiers:
+        if t in ("local", "shared"):
+            raise ConfigError(f"store tier '{t}' is reserved for the primary repo")
+    prefixes = [cfg.id_prefix] + [s["prefix"] for s in cfg.stores]
+    if len(prefixes) != len(set(prefixes)):
+        raise ConfigError("store prefixes must be unique and differ from the primary id_prefix "
+                          f"(got {prefixes}) — distinct prefixes are what keep federated ids from colliding")
 
 
 def resolve_config_path(config_arg: str | None = None, repo: Path | None = None) -> Path | None:

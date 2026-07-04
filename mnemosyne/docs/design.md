@@ -85,12 +85,25 @@ specialized memory libraries). Files in git are the right default, with a clean 
 
 ## Architecture
 
-**Two tiers.** A captured lesson lands in the **local** tier (`memory/local.jsonl`, gitignored)
-instantly — zero friction. It shapes only *your* work until you **promote** it: `mnemosyne
-promote` moves it to the **shared** tier (`memory/lessons.jsonl`, committed) on a branch and
-stages a PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
+**Two tiers, then N.** A captured lesson lands in the **local** tier (`memory/local.jsonl`,
+gitignored) instantly — zero friction. It shapes only *your* work until you **promote** it:
+`mnemosyne promote` moves it to the **shared** tier (`memory/lessons.jsonl`, committed) on a branch
+and stages a PR. A reviewer approves before it becomes team-wide, so one bad lesson can't silently
 poison everyone — the cost of a wrong shared lesson is high (it steers every future run), so it
 gets a human gate. Agent proposes, human disposes.
+
+**Broader tiers (federation).** Beyond its own local+shared tiers, a repo can federate with
+additional **stores** — separate mnemosyne memory repos declared in `config.stores`, each a broader
+shared tier (e.g. `team`, `enterprise`). A store is addressed by a git **url** (mnemosyne clones it
+into a cache — `$MNEMOSYNE_CACHE`, else `~/.mnemosyne/stores` — and `sync` pulls it), or a **path**
+to an existing repo. Each store carries a distinct id **prefix** (e.g. `T`/`E`), which is what lets
+federated lessons share one id space without ever colliding. `recall` reads the union of primary +
+all reachable stores (best-effort: an unreachable store is skipped with a note, never a failure —
+recall never touches the network). `promote --to <tier>` (or `export`) copies chosen local lessons
+*up* to a store under a new store-prefixed id marked `proposed`, opening the PR in *that* store's
+repo. The local original is kept and marked (so recall's near-dup collapse hides the double) until
+the upstream PR merges — the next `sync` then retires it, leaving the store copy authoritative.
+Usage tracking always writes to the primary gitignored sidecar; stores are read-only for usage.
 
 **Source of truth = the JSONL.** `memory/lessons.jsonl` is authoritative; `memory/LESSONS.md` is a
 **generated** human view, regenerated on every write and committed so PR diffs are readable.

@@ -80,14 +80,20 @@ The engine **refuses** missing-deliverable / transient failures ("the build prod
 unless the lesson really is new and durable. A genuine *domain* failure (a trigger that didn't
 fire, an idempotency gap that double-posted) saves normally.
 
-## Promote (share with the team)
+## Promote (share with the team) / Export (broader tiers)
 
 ```
-mnemosyne promote L-0009
+mnemosyne promote L-0009                     # local → this repo's shared tier
+mnemosyne promote L-0007 L-0009 --to team    # export up to a configured team/enterprise store
+mnemosyne promote --from-file promos.json    # batch across tiers via a manifest
+mnemosyne stores                             # list configured shared stores + clone/pull status
 ```
 
-Moves the lesson local → shared, marks it `proposed`, and prints the git/PR steps. A human
-reviewer approves before it becomes team-wide truth. Relay the promotion line to the user.
+Promotion moves the lesson to a shared tier, marks it `proposed`, and prints the git/PR steps. A
+human reviewer approves before it becomes team-wide truth. **Stores** are additional git repos
+(e.g. `team`, `enterprise`) declared in `mnemosyne.config.json`; `recall` federates over them,
+`--to <tier>` exports up to one (opening the PR in *that* repo), and the local original retires
+automatically on the next `sync` once its upstream PR merges. Relay the promotion/export line.
 
 ## Curate on demand
 

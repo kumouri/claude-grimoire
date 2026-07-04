@@ -77,8 +77,21 @@ def reflect(title: str, lesson: str, reflection_of: str, tags: str = "",
 
 @mcp.tool()
 def promote(lesson_id: str) -> dict:
-    """[memory] Move a LOCAL lesson to the SHARED tier and mark it review=proposed (stage the PR)."""
+    """[memory] Move a LOCAL lesson to the SHARED tier and mark it review=proposed (stage the PR).
+
+    To send lesson(s) UP to a broader team/enterprise store (config.stores) instead, use `export`."""
     return mn.promote(lesson_id)
+
+
+@mcp.tool()
+def export(lesson_ids: str, to: str) -> dict:
+    """[memory] Export chosen LOCAL lesson(s) UP to a broader shared store (a tier from config.stores).
+
+    lesson_ids: one id or comma-separated (e.g. "L-0007,L-0009"); to: the tier label (e.g. "team").
+    Each is copied into the store as review=proposed under a new store-prefixed id; the local original is
+    kept + retires automatically on `sync` once the upstream PR is approved."""
+    ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
+    return mn.export(ids, to)
 
 
 @mcp.tool()
