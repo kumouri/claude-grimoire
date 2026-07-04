@@ -38,7 +38,7 @@ __all__ = [
     "load_config", "load_named_example", "resolve_repo",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 
 def _prep(repo, config):
