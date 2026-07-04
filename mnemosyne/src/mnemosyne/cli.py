@@ -138,6 +138,11 @@ def build_parser(cfg: Config) -> argparse.ArgumentParser:
     cf = sub.add_parser("config", help="print the resolved active config (and its source)")
     cf.set_defaults(func=cmd_config)
 
+    wz = sub.add_parser("wizard", help="interactively build a documented mnemosyne.config.json (self-documenting)")
+    wz.add_argument("--output", help="where to write it (default: <repo>/mnemosyne.config.json)")
+    wz.add_argument("--force", action="store_true", help="overwrite an existing config without asking")
+    wz.set_defaults(func=cmd_wizard)
+
     se = sub.add_parser("selftest", help="run the zero-dep test suite")
     se.set_defaults(func=cmd_selftest)
 
@@ -482,6 +487,44 @@ def cmd_config(cfg, repo, args):
     return 0
 
 
+def cmd_wizard(cfg, repo_arg, args):
+    from . import wizard as wz
+    from .config import ConfigError
+
+    if args.output:
+        out = Path(args.output).expanduser()
+    else:
+        base = Path(repo_arg or os.environ.get("MNEMOSYNE_REPO") or os.getcwd()).expanduser()
+        out = base / "mnemosyne.config.json"
+
+    if not sys.stdin.isatty():
+        print("error: the wizard needs an interactive terminal. In a non-interactive shell, seed a "
+              "config from a bundled example instead:\n  mnemosyne init --example software-eng",
+              file=sys.stderr)
+        return 2
+
+    try:
+        doc = wz.run_wizard()
+    except (KeyboardInterrupt, EOFError):
+        print("\nwizard cancelled — nothing written.")
+        return 1
+    except ConfigError as e:
+        print(f"error: could not build a valid config: {e}", file=sys.stderr)
+        return 2
+
+    if out.exists() and not args.force:
+        ans = input(f"\n{out} already exists — overwrite it? [y/N]: ").strip().lower()
+        if ans not in ("y", "yes"):
+            print("Not written. Re-run with --output <path> to write elsewhere, or --force to overwrite.")
+            return 1
+
+    wz.write_config(doc, out)
+    print(f"\nWROTE: {out}")
+    print("  It carries an `_about` block documenting every field (the engine ignores it).")
+    print("  Next: `mnemosyne validate` to check it, then capture a lesson and `mnemosyne recall`.")
+    return 0
+
+
 # ----------------------------------------------------------------------------- selftest
 
 
@@ -671,6 +714,34 @@ def run_selftest() -> int:
         check("an unreachable store never fails recall — it is skipped with a note",
               len(notes) >= 1 and any(l["id"] == "L-0001" for l, _, _ in rankedm))
 
+        # --- configuration wizard (hermetic: scripted input, no TTY, no file I/O) ---
+        from . import wizard as _wz
+        _answers = {"preset": "minimal", "config name": "wizard-selftest", "lesson id prefix": "WIZ"}
+
+        def _respond(prompt):
+            low = prompt.lower()
+            for k, v in _answers.items():
+                if k in low:
+                    return v
+            return ""  # accept every other default; decline all add-loops
+
+        wdoc = _wz.run_wizard(input_fn=_respond, output_fn=lambda *a, **k: None)
+        wiz_ok = True
+        try:
+            Config(wdoc)
+        except Exception:
+            wiz_ok = False
+        check("wizard builds a valid config with overrides applied",
+              wiz_ok and wdoc["id_prefix"] == "WIZ" and wdoc["name"] == "wizard-selftest")
+        documented = _wz.documented_doc(wdoc)
+        check("wizard output is self-documenting (an _about block per field)",
+              "_about" in documented and "axes" in documented["_about"] and "id_prefix" in documented["_about"])
+        check("the engine ignores the _about block (documented config still loads)",
+              Config(documented).id_prefix == "WIZ")
+        wpath = _wz.write_config(wdoc, tmp / "wizard.config.json")
+        check("wizard writes a loadable config file", (tmp / "wizard.config.json").exists()
+              and load_config(str(wpath)).id_prefix == "WIZ")
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(tmp2, ignore_errors=True)
@@ -682,7 +753,7 @@ def run_selftest() -> int:
 # ----------------------------------------------------------------------------- entrypoint
 
 
-NO_REPO_CMDS = {"init", "config", "selftest", "stores"}
+NO_REPO_CMDS = {"init", "config", "selftest", "stores", "wizard"}
 
 
 def main(argv=None):

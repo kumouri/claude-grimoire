@@ -82,6 +82,15 @@ defines the lifecycle **stages**, the recall **axes** (each with a `weight` and 
 from a brief, and the enums/thresholds. Adding an axis to the config automatically adds its CLI
 flag and makes it scored — **no code change**.
 
+The fastest way to author one is the **wizard** — an interactive, self-documenting builder that
+explains every setting as it asks, seeds from a preset, validates the result, and writes a config
+carrying an `_about` block that documents each field (the engine ignores it):
+
+```bash
+mnemosyne wizard                       # writes <repo>/mnemosyne.config.json
+mnemosyne wizard --output ./my.config.json
+```
+
 Three examples ship: `default` (minimal — tags + stages + free-text), `software-eng` (tags,
 components, work-types, source-systems, services, endpoint-patterns), and `multi-store` (default
 axes plus a `stores` block wiring in `team`/`enterprise` tiers — see below). Inspect the active
@@ -114,6 +123,7 @@ a git `url` (auto-cloned) or a `path` to an existing repo:
 | `prune` | Retire (never delete) aged / over-cap low-value lessons (dry-run unless `--apply`). |
 | `hygiene` | Health report: duplicates, never-recalled, cap headroom, prune candidates. |
 | `init` | Scaffold a memory repo (`--example <name>` seeds a config, e.g. `multi-store`). |
+| `wizard` | Interactively build a documented `mnemosyne.config.json` (self-documenting prompts + `_about` block). |
 | `config` | Print the resolved active config and its source. |
 | `selftest` | Zero-dependency test suite. |
 
@@ -132,6 +142,7 @@ mnemosyne/
 │   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
 │   ├── stores.py                  # federation: clone/pull stores + federated load across tiers
 │   ├── config.py                  # config loader/validator
+│   ├── wizard.py                  # interactive, self-documenting config builder
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
 │   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/export/prune/hygiene)
 │   └── data/                      # bundled schema + default, software-eng & multi-store configs
