@@ -10,8 +10,10 @@ structured results; all human/JSON formatting lives in cli.py, so the same logic
 CLI, the MCP server, and the importable API.
 
 TIERS
-  shared  memory/lessons.jsonl   committed, PR-reviewed, team-wide truth (the distribution channel)
   local   memory/local.jsonl     gitignored, per-developer, instant capture (promote -> PR -> shared)
+  shared  memory/lessons.jsonl   committed, PR-reviewed, team-wide truth (the distribution channel)
+  stores  broader shared repos declared in config.stores (e.g. team/enterprise) — federated in at
+          recall time and written up to via `export`/`promote --to`. See stores.py.
 
 SOURCE OF TRUTH = the JSONL. memory/LESSONS.md is a generated human view (regenerated on write).
 """
@@ -157,19 +159,34 @@ def load_all(repo: Path):
     return list(by_id.values()), tier
 
 
-def next_id(cfg: Config, lessons) -> str:
+def load_federated(cfg: Config, repo: Path, *, pull_remotes=False, notes=None):
+    """Return (lessons, tier, origin, source_repo) across the primary repo + all configured stores.
+
+    Thin wrapper over stores.federated_load (imported lazily to avoid a top-level import cycle).
+    With no stores configured this is load_all plus trivial origin/source maps, so every
+    store-aware caller degenerates to today's two-tier behavior."""
+    from . import stores
+    return stores.federated_load(cfg, repo, pull_remotes=pull_remotes, notes=notes)
+
+
+def next_id(cfg: Config, lessons, prefix=None) -> str:
+    prefix = prefix or cfg.id_prefix
     mx = 0
-    pat = re.compile(rf"^{re.escape(cfg.id_prefix)}-(\d+)$")
+    pat = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
     for l in lessons:
         m = pat.match(l.get("id", ""))
         if m:
             mx = max(mx, int(m.group(1)))
-    return cfg.format_id(mx + 1)
+    return f"{prefix}-{mx + 1:04d}"
 
 
-def git(repo: Path, *args, check=False):
+def git(repo: Path, *args, check=False, env=None):
+    run_env = None
+    if env:
+        run_env = dict(os.environ)
+        run_env.update(env)
     try:
-        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, env=run_env)
     except FileNotFoundError:
         return 127, "", "git not found"
     if check and r.returncode != 0:
@@ -548,8 +565,9 @@ def load_schema(repo: Path):
     return json.loads(b.read_text(encoding="utf-8")) if b.exists() else None
 
 
-def validate_record(cfg: Config, l: dict, schema):
+def validate_record(cfg: Config, l: dict, schema, valid_prefixes=None):
     errs = []
+    prefixes = valid_prefixes or [cfg.id_prefix]
     req = (schema or {}).get("required", ["id", "title", "category", "lesson", "trigger", "status", "confidence", "review", "created"])
     for k in req:
         if k not in l or l[k] in (None, "", [], {}):
@@ -575,8 +593,9 @@ def validate_record(cfg: Config, l: dict, schema):
     src_stage = (l.get("source", {}) or {}).get("stage")
     if src_stage and src_stage not in cfg.stages:
         errs.append(f"bad source.stage '{src_stage}'")
-    if not re.match(cfg.id_pattern, l.get("id", "")):
-        errs.append(f"bad id '{l.get('id')}'")
+    lid = l.get("id", "")
+    if not any(re.match(rf"^{re.escape(p)}-\d{{4}}$", lid) for p in prefixes):
+        errs.append(f"bad id '{lid}'")
     rv = l.get("review", {})
     if not isinstance(rv, dict) or rv.get("state") not in cfg.review_states:
         errs.append(f"bad review.state '{rv.get('state') if isinstance(rv, dict) else rv}'")
@@ -585,11 +604,12 @@ def validate_record(cfg: Config, l: dict, schema):
 
 def validate(cfg: Config, repo: Path) -> dict:
     schema = load_schema(repo)
-    lessons, tier = load_all(repo)
+    lessons, tier, _origin, _src = load_federated(cfg, repo, pull_remotes=False)
+    valid_prefixes = [cfg.id_prefix] + [s["prefix"] for s in cfg.stores]
     problems = []
     ids = {}
     for l in lessons:
-        for e in validate_record(cfg, l, schema):
+        for e in validate_record(cfg, l, schema, valid_prefixes):
             problems.append(f"{l.get('id', '?')}: {e}")
         ids.setdefault(l.get("id"), 0)
         ids[l["id"]] += 1
@@ -614,11 +634,14 @@ def validate(cfg: Config, repo: Path) -> dict:
         if md.read_text(encoding="utf-8") != cur:
             stale = True
             md.write_text(cur, encoding="utf-8")  # restore; don't mutate during validate
+    by_tier = {}
+    for t in tier.values():
+        by_tier[t] = by_tier.get(t, 0) + 1
     return {
         "ok": not problems and not stale, "repo": str(repo), "sha": git_sha(repo),
         "counts": {"total": len(lessons),
-                   "shared": sum(1 for t in tier.values() if t == "shared"),
-                   "local": sum(1 for t in tier.values() if t == "local")},
+                   "shared": by_tier.get("shared", 0), "local": by_tier.get("local", 0),
+                   "by_tier": by_tier},
         "problems": problems, "render_stale": stale,
     }
 
@@ -626,11 +649,14 @@ def validate(cfg: Config, repo: Path) -> dict:
 # ----------------------------------------------------------------------------- recall (hot path)
 
 
-def recall(cfg: Config, repo: Path, ctx: dict, top=None, min_score=None, bump=True):
-    """Score every active lesson against ctx; return (ranked, tier). ranked = [(lesson, score, why)]."""
+def recall(cfg: Config, repo: Path, ctx: dict, top=None, min_score=None, bump=True, notes=None):
+    """Score every active lesson against ctx; return (ranked, tier). ranked = [(lesson, score, why)].
+
+    Federates over the primary repo + configured stores (read-only — recall never pulls, so an
+    unreachable remote never blocks it; any skipped store is reported via the `notes` list)."""
     top = cfg.recall_top if top is None else top
     min_score = cfg.recall_min_score if min_score is None else min_score
-    lessons, tier = load_all(repo)
+    lessons, tier, _origin, _src = load_federated(cfg, repo, pull_remotes=False, notes=notes)
     scored = []
     for l in lessons:
         sc, why = score(cfg, l, ctx)
@@ -749,6 +775,18 @@ def capture(cfg: Config, repo: Path, fields: dict, *, category_default="decision
         if bad:
             raise LowValueError(matched)
 
+    # (B0) hygiene: warn if a broader store (team/enterprise) already carries this lesson. We
+    # never silently reinforce a remote store on a plain local capture (it isn't ours to mutate,
+    # and its usage sidecar is read-only) — surface it and let the author promote/skip instead.
+    if cfg.stores and not force and not supersede:
+        fed, _tier, origin, _src = load_federated(cfg, repo, pull_remotes=False)
+        store_lessons = [l for l in fed if origin.get(l["id"], "primary") != "primary"]
+        sdup_id, sdup_sc = find_duplicate(cfg, lesson, store_lessons)
+        if sdup_id:
+            return {"action": "cross_store_duplicate", "dup_id": sdup_id,
+                    "tier": origin.get(sdup_id), "similarity": round(sdup_sc, 2),
+                    "threshold": cfg.dup_threshold}
+
     # (B) hygiene: a near-duplicate reinforces the existing lesson instead of adding noise.
     if not force and not supersede:
         dup_id, dup_sc = find_duplicate(cfg, lesson, lessons)
@@ -830,14 +868,116 @@ def promote(cfg: Config, repo: Path, lesson_id: str) -> dict:
             "is_git": code == 0}
 
 
+def export(cfg: Config, repo: Path, lesson_ids, to_tier: str) -> dict:
+    """Promote chosen local lessons UP to a broader shared store (team/enterprise, etc.).
+
+    Each exported lesson is copied into the store under a NEW id in the store's own prefix and
+    marked review=proposed; the local original is KEPT but marked proposed with a back-reference
+    (`source.exported_to`) so recall's near-dup collapse hides the double and `sync` can retire it
+    once the upstream copy is approved. Unlike recall, export is a WRITE and fails loudly if the
+    store is unreachable. Returns a dict the CLI uses to stage the review PR in the STORE repo."""
+    from . import stores as _stores
+
+    if to_tier in (None, "shared"):
+        # default path: same-repo local -> shared, one entry per id
+        return {"tier": "shared", "same_repo": True,
+                "results": [promote(cfg, repo, lid) for lid in lesson_ids]}
+
+    st = _stores.resolve_store(cfg, to_tier)
+    if st is None:
+        known = ", ".join(s["tier"] for s in cfg.stores) or "(none configured)"
+        raise EngineError(f"no store tier '{to_tier}' in config.stores — known tiers: {known}")
+    if st.readonly:
+        raise EngineError(f"store '{to_tier}' is read-only (config.stores[].readonly) — cannot export to it")
+    store_repo, note = _stores.ensure_cloned(st)
+    if store_repo is None:
+        raise EngineError(f"cannot reach store '{to_tier}' to export: {note}")
+
+    local = read_jsonl(local_path(repo))
+    local_by_id = {l["id"]: l for l in local}
+    store_lessons = read_jsonl(shared_path(store_repo))
+
+    exported, skipped = [], []
+    for lid in lesson_ids:
+        orig = local_by_id.get(lid)
+        if orig is None:
+            skipped.append({"id": lid, "reason": "not in the local tier (only local lessons can be exported)"})
+            continue
+        copy = json.loads(json.dumps(orig))  # deep copy
+        remote_id = _stores.next_store_id(st, store_lessons)
+        copy["id"] = remote_id
+        copy["review"] = {"state": "proposed"}
+        copy["created"] = today()
+        copy["updated"] = today()
+        copy.setdefault("source", {})["exported_from"] = lid
+        copy.pop("superseded_by", None)
+        copy["status"] = "active"
+        store_lessons.append(copy)
+        orig["review"] = {"state": "proposed"}
+        orig["updated"] = today()
+        orig.setdefault("source", {})["exported_to"] = {"tier": to_tier, "remote_id": remote_id}
+        exported.append({"local_id": lid, "remote_id": remote_id, "title": orig.get("title", "")})
+
+    if exported:
+        write_jsonl(shared_path(store_repo), store_lessons)
+        render_lessons_md(cfg, store_repo)
+        write_jsonl(local_path(repo), local)
+        render_lessons_md(cfg, repo)
+
+    remote_ids = [e["remote_id"] for e in exported]
+    branch = (f"reflexion/{remote_ids[0]}" if len(remote_ids) == 1
+              else f"reflexion/export-{to_tier}-{'-'.join(remote_ids)}") if remote_ids else None
+    code, _, _ = git(store_repo, "rev-parse", "--is-inside-work-tree")
+    return {"tier": to_tier, "same_repo": False, "store_repo": str(store_repo),
+            "exported": exported, "skipped": skipped, "branch": branch,
+            "is_git": code == 0}
+
+
+def _retire_exported_on_merge(cfg: Config, repo: Path, fed_by_id: dict) -> list:
+    """Retire local originals whose exported copy is now approved upstream. Returns retired ids."""
+    retired = []
+    for tf in (shared_path(repo), local_path(repo)):
+        rows = read_jsonl(tf)
+        changed = False
+        for r in rows:
+            exp = (r.get("source", {}) or {}).get("exported_to")
+            if not exp or r.get("status") != "active":
+                continue
+            remote = fed_by_id.get(exp.get("remote_id"))
+            if remote and (remote.get("review", {}) or {}).get("state") == "approved":
+                r["status"] = "retired"
+                r["retired_reason"] = f"exported to {exp.get('tier')} as {exp.get('remote_id')}, approved upstream"
+                r["superseded_by"] = exp.get("remote_id")
+                r["updated"] = today()
+                changed = True
+                retired.append(r["id"])
+        if changed:
+            write_jsonl(tf, rows)
+    return retired
+
+
 def sync(cfg: Config, repo: Path) -> dict:
+    from . import stores as _stores
     code, out, err = git(repo, "pull", "--ff-only")
     if code == 127:
         raise EngineError("git not found")
-    if code != 0:
-        return {"ok": False, "error": err or out}
+    # A primary pull failure (e.g. a remote-less local memory repo) must NOT block store syncing
+    # or retire-on-merge — those depend on the stores' state, not the primary's remote.
+    primary_ok = code == 0
+    primary_err = None if primary_ok else (err or out)
+    store_status = []
+    for st in _stores.resolve_stores(cfg):
+        d, note = _stores.pull(st)
+        store_status.append({"tier": st.tier, "ok": d is not None and not note,
+                             "note": note, "sha": git_sha(d) if d else None})
+    retired = []
+    if cfg.stores:
+        fed, _t, _o, _s = load_federated(cfg, repo, pull_remotes=False)
+        retired = _retire_exported_on_merge(cfg, repo, {l["id"]: l for l in fed})
     render_lessons_md(cfg, repo)
-    return {"ok": True, "sha": git_sha(repo), "out": out.splitlines()[-1] if out else "already current"}
+    return {"ok": primary_ok, "error": primary_err, "sha": git_sha(repo),
+            "out": out.splitlines()[-1] if out else "already current",
+            "stores": store_status, "retired": retired}
 
 
 def prune(cfg: Config, repo: Path, *, apply=False, cap=None, max_age_days=None) -> dict:
@@ -875,7 +1015,7 @@ def prune(cfg: Config, repo: Path, *, apply=False, cap=None, max_age_days=None) 
 def hygiene(cfg: Config, repo: Path, *, cap=None, max_age_days=None) -> dict:
     cap = cfg.prune_cap if cap is None else cap
     max_age_days = cfg.prune_max_age_days if max_age_days is None else max_age_days
-    lessons, tier = load_all(repo)
+    lessons, tier, _origin, _src = load_federated(cfg, repo, pull_remotes=False)
     usage = read_usage(repo)
     today_d = _dt.date.today()
     active = [l for l in lessons if l.get("status") == "active"]
@@ -895,11 +1035,14 @@ def hygiene(cfg: Config, repo: Path, *, cap=None, max_age_days=None) -> dict:
 
 
 def stats(cfg: Config, repo: Path) -> dict:
-    lessons, tier = load_all(repo)
+    lessons, tier, _origin, _src = load_federated(cfg, repo, pull_remotes=False)
     usage = read_usage(repo)
     by_cat = {}
     for l in lessons:
         by_cat[l["category"]] = by_cat.get(l["category"], 0) + 1
+    by_tier = {}
+    for t in tier.values():
+        by_tier[t] = by_tier.get(t, 0) + 1
 
     def _u(l):
         return total_uses(l, usage)
@@ -910,15 +1053,16 @@ def stats(cfg: Config, repo: Path) -> dict:
     return {"total": len(lessons), "sha": git_sha(repo),
             "active": sum(1 for l in lessons if l.get("status") == "active"),
             "retired": sum(1 for l in lessons if l.get("status") == "retired"),
-            "shared": sum(1 for t in tier.values() if t == "shared"),
-            "local": sum(1 for t in tier.values() if t == "local"),
+            "shared": by_tier.get("shared", 0), "local": by_tier.get("local", 0),
+            "by_tier": by_tier,
             "by_category": by_cat,
             "most_used": [(l["id"], _u(l)) for l in top],
             "most_reinforced": [(l["id"], l.get("reinforced", 0)) for l in reinf]}
 
 
-def list_lessons(cfg: Config, repo: Path, *, category=None, status=None, tier_filter=None):
-    lessons, tier = load_all(repo)
+def list_lessons(cfg: Config, repo: Path, *, category=None, status=None, tier_filter=None,
+                 store_filter=None):
+    lessons, tier, origin, _src = load_federated(cfg, repo, pull_remotes=False)
     lessons.sort(key=lambda l: l["id"])
     rows = []
     for l in lessons:
@@ -927,6 +1071,8 @@ def list_lessons(cfg: Config, repo: Path, *, category=None, status=None, tier_fi
         if status and l.get("status") != status:
             continue
         if tier_filter and tier.get(l["id"]) != tier_filter:
+            continue
+        if store_filter and origin.get(l["id"], "primary") != store_filter:
             continue
         rows.append((l, tier.get(l["id"], "shared")))
     return rows

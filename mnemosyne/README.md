@@ -82,9 +82,21 @@ defines the lifecycle **stages**, the recall **axes** (each with a `weight` and 
 from a brief, and the enums/thresholds. Adding an axis to the config automatically adds its CLI
 flag and makes it scored — **no code change**.
 
-Two examples ship: `default` (minimal — tags + stages + free-text) and `software-eng` (tags,
-components, work-types, source-systems, services, endpoint-patterns). Inspect the active config
-with `mnemosyne config`.
+Three examples ship: `default` (minimal — tags + stages + free-text), `software-eng` (tags,
+components, work-types, source-systems, services, endpoint-patterns), and `multi-store` (default
+axes plus a `stores` block wiring in `team`/`enterprise` tiers — see below). Inspect the active
+config with `mnemosyne config`.
+
+A config may also declare **stores** — additional shared memory repos federated in as broader
+tiers. Each store has a `tier` label, a distinct id `prefix` (so federated ids never collide), and
+a git `url` (auto-cloned) or a `path` to an existing repo:
+
+```json
+"stores": [
+  {"tier": "team",       "prefix": "T", "url": "git@github.com:org/team-memory.git"},
+  {"tier": "enterprise", "prefix": "E", "url": "git@github.com:org/enterprise-memory.git"}
+]
+```
 
 ## Commands
 
@@ -93,19 +105,23 @@ with `mnemosyne config`.
 | `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
 | `capture` / `add` | Save a decision/convention/… to the local tier. |
 | `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
-| `promote <id>` | Move a local lesson to shared + stage the review PR (governance gate). |
-| `sync` | `git pull` the shared memory (refresh before work). |
+| `promote <id…>` | Promote local lesson(s) to shared, or `--to <tier>` / `--from-file <manifest>` to export up to a store. |
+| `sync` | `git pull` the shared memory + every configured store; retire exported-then-approved originals. |
+| `stores` | List configured shared stores (broader tiers) + their clone/pull status. |
 | `render` | Regenerate `memory/LESSONS.md` from the JSONL. |
-| `list` / `show` / `stats` | Browse and summarize lessons. |
+| `list` / `show` / `stats` | Browse and summarize lessons (`list --tier`/`--store`; `stats` shows counts by tier). |
 | `validate` | Schema + spine consistency (exit 0 ok / 1 problems). |
 | `prune` | Retire (never delete) aged / over-cap low-value lessons (dry-run unless `--apply`). |
 | `hygiene` | Health report: duplicates, never-recalled, cap headroom, prune candidates. |
-| `init` | Scaffold a memory repo (`--example <name>` seeds a config). |
+| `init` | Scaffold a memory repo (`--example <name>` seeds a config, e.g. `multi-store`). |
 | `config` | Print the resolved active config and its source. |
 | `selftest` | Zero-dependency test suite. |
 
-Everything is also available as the Python API (`mn.recall/capture/reflect/promote/prune/…`) and
-as MCP tools.
+Everything is also available as the Python API (`mn.recall/capture/reflect/promote/export/prune/…`)
+and as MCP tools.
+
+Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
+(lesson author), and `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`).
 
 ## Layout
 
@@ -113,11 +129,12 @@ as MCP tools.
 mnemosyne/
 ├── pyproject.toml                 # PyPI package (console script + [mcp] extra)
 ├── src/mnemosyne/
-│   ├── core.py                    # the engine (axis-driven scorer, hygiene, git)
+│   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
+│   ├── stores.py                  # federation: clone/pull stores + federated load across tiers
 │   ├── config.py                  # config loader/validator
 │   ├── cli.py                     # CLI (dynamic per-axis flags) + self-test
-│   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/prune/hygiene)
-│   └── data/                      # bundled schema + default & software-eng configs
+│   ├── mcp_server.py              # MCP server (recall/capture/reflect/promote/export/prune/hygiene)
+│   └── data/                      # bundled schema + default, software-eng & multi-store configs
 ├── plugin/                        # Claude Code plugin (skill + hooks + commands)
 ├── memory/                        # a working demo store (lessons.jsonl + generated LESSONS.md)
 ├── mnemosyne.config.json          # this repo's active config (software-eng) — also a demo
@@ -127,14 +144,18 @@ mnemosyne/
 `memory/local.jsonl` and `memory/usage.local.json` are per-developer and gitignored; only
 `memory/lessons.jsonl` (+ the generated `LESSONS.md`) is committed and shared.
 
-## Two tiers & transparency
+## Tiers & transparency
 
 - **local** (`memory/local.jsonl`, gitignored) — instant, per-developer capture.
 - **shared** (`memory/lessons.jsonl`, committed) — team-wide truth; entered only via a reviewed
   promotion PR (see [`docs/lesson-review-checklist.md`](docs/lesson-review-checklist.md)).
+- **stores** (`config.stores`) — broader shared repos (e.g. `team`, `enterprise`) federated in at
+  recall time and written up to with `promote --to <tier>`. `recall` reads them best-effort (an
+  unreachable store is skipped with a note, never a failure); `sync` pulls them and retires a local
+  original once its exported copy is approved upstream. See [`docs/design.md`](docs/design.md).
 
-Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` line meant to be relayed
-verbatim. Memory is never applied silently and never shared unreviewed.
+Every command prints a quotable `RECALL:` / `SAVED:` / `PROMOTED:` / `EXPORTED:` line meant to be
+relayed verbatim. Memory is never applied silently and never shared unreviewed.
 
 ## Development
 
