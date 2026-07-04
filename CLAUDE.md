@@ -26,7 +26,7 @@ header comment explaining what it does and how to install/use it.
 
 ## Featured — Grimoire (Mnemosyne + Morpheus)
 
-`grimoire/` is the umbrella: one MCP server (`grimoire.mcp_server`, all nine tools) and one plugin
+`grimoire/` is the umbrella: one MCP server (`grimoire.mcp_server`, all ten tools) and one plugin
 (a single `grimoire_hook.py` dispatcher) composing two independent engines — **mnemosyne** (memory)
 and **morpheus** (dreams). Each engine also ships standalone four ways (package · CLI · MCP server ·
 plugin). Design: [`docs/grimoire/architecture.md`](docs/grimoire/architecture.md).
@@ -52,6 +52,15 @@ recall axes, stages, and vocabulary live in `mnemosyne.config.json`, so the scor
 domain-agnostic. It ships three ways over one engine: a PyPI package/CLI (`src/mnemosyne/`,
 console script `mnemosyne`), a Claude Code plugin (`mnemosyne/plugin/`), and an MCP server
 (`src/mnemosyne/mcp_server.py`). Design: [`mnemosyne/docs/design.md`](mnemosyne/docs/design.md).
+
+Beyond its own local+shared tiers, a repo can **federate** with additional shared stores (broader
+`team`/`enterprise` tiers) declared in `config.stores` — each a separate memory repo addressed by a
+git URL (auto-cloned into `$MNEMOSYNE_CACHE`) or a path, with a distinct id prefix so federated ids
+never collide. `recall` reads the union best-effort (an unreachable store is skipped, never fatal);
+`promote --to <tier>` / `export` copies chosen local lessons up to a store, and `sync` pulls stores
+and retires a local original once its exported copy is approved upstream. Federation lives in
+`src/mnemosyne/stores.py`; keep clone/pull best-effort (never fail a recall) and keep prefixes
+distinct.
 
 When extending it, keep the engine dependency-free (the `mcp` package is an optional extra),
 drive new recall dimensions through config axes rather than hardcoding them, and keep

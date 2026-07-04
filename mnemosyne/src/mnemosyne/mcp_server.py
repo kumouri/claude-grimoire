@@ -90,8 +90,23 @@ def promote(lesson_id: str) -> dict:
     """Move a LOCAL lesson to the SHARED tier and mark it review=proposed (stage the governance PR).
 
     A human reviewer approves the PR before the lesson becomes team-wide truth. Announce this to the user.
+    To send lesson(s) UP to a broader team/enterprise store instead of this repo's shared tier, use `export`.
     """
     return mn.promote(lesson_id)
+
+
+@mcp.tool()
+def export(lesson_ids: str, to: str) -> dict:
+    """Export chosen LOCAL lesson(s) UP to a broader shared store (a tier from config.stores).
+
+    lesson_ids: one id or a comma-separated list (e.g. "L-0007,L-0009").
+    to:         the destination tier label (e.g. "team" or "enterprise").
+    Each lesson is copied into the store under a new store-prefixed id (review=proposed) and the local
+    original is kept + marked for retire-on-merge; `sync` retires it once the upstream PR is approved.
+    Announce which lessons were exported and to which tier.
+    """
+    ids = [x.strip() for x in lesson_ids.split(",") if x.strip()]
+    return mn.export(ids, to)
 
 
 @mcp.tool()
