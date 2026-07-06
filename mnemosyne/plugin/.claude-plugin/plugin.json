@@ -1,6 +1,6 @@
 {
   "name": "mnemosyne",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "Reflexion memory for Claude Code — recall durable lessons into your work, reflect real failures into new lessons, and govern promotion to a shared, PR-reviewed store. Git-backed, config-driven, stdlib-only engine.",
   "author": {
     "name": "Ceryce Armstrong",

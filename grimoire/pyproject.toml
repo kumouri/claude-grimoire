@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "grimoire-mcp"
-version = "0.4.0"
+version = "0.5.0"
 description = "Grimoire — one MCP server + one Claude Code plugin uniting the mnemosyne (reflexion memory) and morpheus (session dreaming) engines."
 readme = "README.md"
 requires-python = ">=3.8"
