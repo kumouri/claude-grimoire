@@ -1,7 +1,7 @@
 # 🔮 claude-grimoire
 
 [![made by kumouri](https://img.shields.io/badge/made%20by-kumouri-8e00ff?style=flat-square)](https://github.com/kumouri)
-[![license: MIT](https://img.shields.io/badge/license-MIT-00ff0f?style=flat-square)](LICENSE)
+[![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-00ff0f?style=flat-square)](LICENSE)
 [![Git Flow](https://img.shields.io/badge/workflow-git--flow-8e00ff?style=flat-square)](#-git-flow)
 
 > A grimoire of Claude Code creations — the skills, hooks, slash commands, and agents I
@@ -54,7 +54,7 @@ Release tags are prefixed with `v` (e.g. `v1.0.0`).
 
 ## 🪪 License
 
-[MIT](LICENSE) © 2026 Ceryce Armstrong
+[Apache-2.0](LICENSE) © 2026 Ceryce Armstrong
 
 ---
 
