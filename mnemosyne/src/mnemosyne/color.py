@@ -17,7 +17,7 @@ DIM = "\x1b[2m"
 # 24-bit truecolor brand palette
 PURPLE = "\x1b[38;2;142;0;255m"   # #8e00ff — Kumouri Purple (primary)
 GREEN = "\x1b[38;2;0;255;15m"     # #00ff0f — Toxic Green (accent)
-RED = "\x1b[38;2;255;92;92m"      # readable error red (not a brand colour; used sparingly)
+RED = "\x1b[38;2;255;0;0m"        # pure red — full saturation + value, matching the brand neons
 
 
 def _enable_windows_vt() -> bool:
