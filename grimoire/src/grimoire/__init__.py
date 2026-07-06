@@ -9,4 +9,4 @@ Grimoire itself is thin: one MCP server (`grimoire.mcp_server`, exposing both en
 one Claude Code plugin (a single lifecycle-hook dispatcher composing both). The engines remain
 separately installable; Grimoire just unifies the surface.
 """
-__version__ = "0.4.0"
+__version__ = "0.5.0"
