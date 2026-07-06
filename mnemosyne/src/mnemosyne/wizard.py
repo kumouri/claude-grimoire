@@ -57,10 +57,16 @@ PRESETS = {
 class IO:
     """A thin, injectable console. Tests pass their own input/output callables."""
 
-    def __init__(self, input_fn=None, output_fn=None):
+    def __init__(self, input_fn=None, output_fn=None, color=None):
         # Resolve at call time (not def time) so tests can monkeypatch builtins.input/print.
         self._in = input_fn or input
         self._out = output_fn or print
+        from .color import Palette, should_color
+        # Auto-enable brand colour only on the real stdout path (default print) at a TTY. A test or
+        # the selftest that injects its own output_fn gets plain text.
+        if color is None:
+            color = should_color() if output_fn is None else False
+        self.c = Palette(color)
 
     def ask(self, prompt: str) -> str:
         return self._in(prompt)
@@ -70,9 +76,9 @@ class IO:
 
     def section(self, title: str, desc: str = "") -> None:
         self.say("")
-        self.say(f"== {title} ==")
+        self.say(self.c.title(f"== {title} =="))
         for line in _wrap(desc):
-            self.say(line)
+            self.say(self.c.dim(line))
 
 
 def _wrap(text: str, width: int = 78):
@@ -112,20 +118,20 @@ def ask(io: IO, label: str, help_text: str, default, *, cast: str = "str", choic
     """Prompt for one value, documenting it. Enter keeps the default; input is cast + validated."""
     io.say("")
     for line in _wrap(help_text):
-        io.say("  " + line)
+        io.say("  " + io.c.dim(line))
     if choices:
-        io.say("  options: " + ", ".join(str(c) for c in choices))
+        io.say("  options: " + io.c.value(", ".join(str(c) for c in choices)))
     while True:
-        raw = io.ask(f"  {label} [{_fmt_default(default)}]: ").strip()
+        raw = io.ask(f"  {io.c.label(label)} [{io.c.value(_fmt_default(default))}]: ").strip()
         if raw == "":
             return default
         try:
             val = _coerce(raw, cast)
         except ValueError as e:
-            io.say(f"  ! {e}")
+            io.say(io.c.warn(f"  ! {e}"))
             continue
         if choices and val not in choices:
-            io.say("  ! choose one of: " + ", ".join(str(c) for c in choices))
+            io.say(io.c.warn("  ! choose one of: ") + io.c.value(", ".join(str(c) for c in choices)))
             continue
         return val
 
@@ -133,24 +139,24 @@ def ask(io: IO, label: str, help_text: str, default, *, cast: str = "str", choic
 def ask_bool(io: IO, label: str, help_text: str, default: bool = False) -> bool:
     io.say("")
     for line in _wrap(help_text):
-        io.say("  " + line)
+        io.say("  " + io.c.dim(line))
     hint = "Y/n" if default else "y/N"
     while True:
-        raw = io.ask(f"  {label} [{hint}]: ").strip().lower()
+        raw = io.ask(f"  {io.c.label(label)} [{io.c.value(hint)}]: ").strip().lower()
         if raw == "":
             return default
         if raw in ("y", "yes"):
             return True
         if raw in ("n", "no"):
             return False
-        io.say("  ! please answer y or n")
+        io.say(io.c.warn("  ! please answer y or n"))
 
 
 def _ask_unique(io: IO, label: str, help_text: str, default, taken, what: str):
     while True:
         v = ask(io, label, help_text, default)
         if v in taken:
-            io.say(f"  ! {what} '{v}' is already used — it must be unique")
+            io.say(io.c.warn(f"  ! {what} '{v}' is already used — it must be unique"))
             continue
         return v
 
@@ -164,7 +170,7 @@ def _edit_axes(io: IO, axes):
         io.say("")
         io.say("  current axes:")
         for a in axes:
-            io.say(f"    - {a['name']} (match={a.get('match', 'set')}, weight={a.get('weight', 1)})")
+            io.say(f"    - {io.c.value(a['name'])} (match={a.get('match', 'set')}, weight={a.get('weight', 1)})")
         if ask_bool(io, "Remove any of these axes?", "Drop axes you don't need.", default=False):
             axes = [a for a in axes
                     if ask_bool(io, f"Keep axis '{a['name']}'?", "", default=True)]
@@ -173,7 +179,7 @@ def _edit_axes(io: IO, axes):
                    default=False):
         axes.append(_build_axis(io, {a["name"] for a in axes}))
     if not axes:
-        io.say("  (no axes — recall will rely on stages + free-text matching only)")
+        io.say(io.c.dim("  (no axes — recall will rely on stages + free-text matching only)"))
     return axes
 
 
@@ -183,10 +189,10 @@ def _build_axis(io: IO, taken):
                    "The trigger key + CLI flag, e.g. 'components'. Lowercase; spaces become '_'.",
                    "tags").strip().replace(" ", "_")
         if not name:
-            io.say("  ! an axis needs a name")
+            io.say(io.c.warn("  ! an axis needs a name"))
             continue
         if name in taken:
-            io.say(f"  ! axis '{name}' already exists")
+            io.say(io.c.warn(f"  ! axis '{name}' already exists"))
             continue
         break
     match = ask(io, "Match strategy",
@@ -217,7 +223,7 @@ def _edit_stores(io: IO, stores, id_prefix: str):
         io.say("")
         io.say("  current stores:")
         for s in stores:
-            io.say(f"    - {s['tier']} ({s['prefix']}-) -> {s.get('url') or s.get('path')}")
+            io.say(f"    - {io.c.value(s['tier'])} ({s['prefix']}-) -> {s.get('url') or s.get('path')}")
     if not ask_bool(io, "Configure shared team/enterprise stores?",
                     "Federate this repo with other memory repos as broader tiers. "
                     "Skip if you just want a self-contained local repo.",
@@ -259,13 +265,13 @@ def run_wizard(io: IO | None = None, *, input_fn=None, output_fn=None) -> dict:
     Raises ConfigError if the assembled config fails validation (rare — inputs are constrained)."""
     io = io or IO(input_fn, output_fn)
 
-    io.say("Mnemosyne configuration wizard")
-    io.say("Builds a documented mnemosyne.config.json. Press Enter to accept each [default].")
+    io.say(io.c.title("Mnemosyne configuration wizard"))
+    io.say(io.c.dim("Builds a documented mnemosyne.config.json. Press Enter to accept each [default]."))
 
     io.section("Starting point",
                "Seed the config from a preset (a complete, valid config) and tweak it from there.")
     for key, (_name, desc) in PRESETS.items():
-        io.say(f"  - {key}: {desc}")
+        io.say(f"  - {io.c.value(key)}: {desc}")
     preset = ask(io, "Preset", "Which preset to start from.", "minimal", choices=list(PRESETS))
     doc = load_named_example(PRESETS[preset][0]).as_dict()
 
@@ -328,7 +334,7 @@ def run_wizard(io: IO | None = None, *, input_fn=None, output_fn=None) -> dict:
         Config(doc)
     except ConfigError as e:
         io.say("")
-        io.say(f"  ! the assembled config is not valid: {e}")
+        io.say(io.c.warn(f"  ! the assembled config is not valid: {e}"))
         raise
     return doc
 
