@@ -489,8 +489,10 @@ def cmd_config(cfg, repo, args):
 
 def cmd_wizard(cfg, repo_arg, args):
     from . import wizard as wz
+    from .color import palette
     from .config import ConfigError
 
+    c = palette()
     if args.output:
         out = Path(args.output).expanduser()
     else:
@@ -498,30 +500,30 @@ def cmd_wizard(cfg, repo_arg, args):
         out = base / "mnemosyne.config.json"
 
     if not sys.stdin.isatty():
-        print("error: the wizard needs an interactive terminal. In a non-interactive shell, seed a "
-              "config from a bundled example instead:\n  mnemosyne init --example software-eng",
+        print(c.warn("error: the wizard needs an interactive terminal.") + " In a non-interactive "
+              "shell, seed a config from a bundled example instead:\n  mnemosyne init --example software-eng",
               file=sys.stderr)
         return 2
 
     try:
         doc = wz.run_wizard()
     except (KeyboardInterrupt, EOFError):
-        print("\nwizard cancelled — nothing written.")
+        print("\n" + c.dim("wizard cancelled — nothing written."))
         return 1
     except ConfigError as e:
-        print(f"error: could not build a valid config: {e}", file=sys.stderr)
+        print(c.warn(f"error: could not build a valid config: {e}"), file=sys.stderr)
         return 2
 
     if out.exists() and not args.force:
-        ans = input(f"\n{out} already exists — overwrite it? [y/N]: ").strip().lower()
+        ans = input(f"\n{c.value(str(out))} already exists — overwrite it? [y/N]: ").strip().lower()
         if ans not in ("y", "yes"):
             print("Not written. Re-run with --output <path> to write elsewhere, or --force to overwrite.")
             return 1
 
     wz.write_config(doc, out)
-    print(f"\nWROTE: {out}")
-    print("  It carries an `_about` block documenting every field (the engine ignores it).")
-    print("  Next: `mnemosyne validate` to check it, then capture a lesson and `mnemosyne recall`.")
+    print("\n" + c.ok(f"WROTE: {out}"))
+    print(c.dim("  It carries an `_about` block documenting every field (the engine ignores it)."))
+    print(c.dim("  Next: `mnemosyne validate` to check it, then capture a lesson and `mnemosyne recall`."))
     return 0
 
 

@@ -17,7 +17,7 @@ The reflection engine is selected by config (`headless` / `hybrid` / `determinis
 from __future__ import annotations
 
 __all__ = ["dream", "wake", "list_dreams", "__version__"]
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def dream(cwd, session_id="", transcript_path="", mode=None):
