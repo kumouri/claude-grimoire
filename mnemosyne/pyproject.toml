@@ -8,12 +8,12 @@ version = "0.4.0"
 description = "A generic, git-backed reflexion memory for agent pipelines — recall durable lessons, reflect failures, govern promotion."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Ceryce Armstrong", email = "ceryce.c.armstrong@gmail.com" }]
 keywords = ["reflexion", "agent-memory", "llm", "claude", "mcp", "episodic-memory"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries",
 ]

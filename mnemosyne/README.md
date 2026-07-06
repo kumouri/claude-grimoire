@@ -180,4 +180,4 @@ the `[mcp]` extra).
 ---
 
 Part of [claude-grimoire](../README.md) — a collection of standalone Claude Code artifacts.
-MIT licensed.
+Apache-2.0 licensed.
