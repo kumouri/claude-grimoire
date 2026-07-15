@@ -76,12 +76,14 @@ def maybe_commit(memory_dir: Path, cfg: dict) -> None:
     import subprocess
     if not (memory_dir / ".git").exists() and not (memory_dir.parent / ".git").exists():
         return
+    # No visible console window from the console-less worker (0 outside Windows).
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         subprocess.run(["git", "-C", str(memory_dir), "add", "-A"],
-                       capture_output=True, timeout=30)
+                       capture_output=True, timeout=30, creationflags=flags)
         subprocess.run(["git", "-C", str(memory_dir), "commit", "-m",
                         "dream: consolidate session memory"],
-                       capture_output=True, timeout=30)
+                       capture_output=True, timeout=30, creationflags=flags)
     except Exception:
         pass
 
