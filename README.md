@@ -26,6 +26,14 @@ Each engine ships four ways — **package · CLI · MCP server · plugin** — a
 composes both and exposes all nine tools on one server. Architecture + diagrams:
 [docs/grimoire/architecture.md](docs/grimoire/architecture.md).
 
+## 🎼 Also featured — Amphion
+
+**[Amphion](amphion/)** — a spec-to-PR implementation pipeline as seven composable skills: load
+the decided context, handle what the spec didn't cover, recover from a crashed delegate, add CI,
+write the PR, correct the docs the diff made wrong, and log the friction. Pure markdown,
+config-driven, no runtime. Named for the twin who built Thebes' walls by playing his lyre while the
+stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/docs/pipeline.md).
+
 ## 📜 Structure
 
 | Directory | What lives here |
@@ -33,7 +41,8 @@ composes both and exposes all nine tools on one server. Architecture + diagrams:
 | [`grimoire/`](grimoire/) | The umbrella: unified MCP server + plugin composing both engines. |
 | [`mnemosyne/`](mnemosyne/) | Reflexion-lessons memory engine (package · CLI · MCP server · plugin). |
 | [`morpheus/`](morpheus/) | Session dreaming / consolidation engine (package · CLI · MCP server · plugin). |
-| [`skills/`](skills/) | Standalone custom Skills not tied to an engine. |
+| [`amphion/`](amphion/) | Spec-to-PR implementation pipeline — seven composable skills, one plugin. |
+| [`skills/`](skills/) | Standalone custom Skills not tied to an engine or package. |
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
 | [`commands/`](commands/) | Standalone custom slash commands. |
 | [`agents/`](agents/) | Custom subagent definitions. |
