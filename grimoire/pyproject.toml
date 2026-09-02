@@ -18,7 +18,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 # The umbrella server needs both engines and the MCP SDK.
-dependencies = ["mnemosyne-reflexion", "morpheus-dreaming", "mcp>=1.2"]
+dependencies = ["mnemosyne-reflexion", "morpheus-dreaming", "mcp>=1.2,<2"]
 
 [project.scripts]
 grimoire-mcp = "grimoire.mcp_server:main"
