@@ -13,14 +13,32 @@ Register (Claude Code):
 """
 from __future__ import annotations
 
+import importlib.util
+
 import mnemosyne as mn
+
+
+def _mcp_import_error(exc: ImportError) -> SystemExit:
+    """Build an accurate SystemExit for a failed `from mcp.server.fastmcp import FastMCP`.
+
+    ImportError also fires when 'mcp' IS installed but the submodule import fails for some
+    other reason (e.g. a breaking API change in a newer mcp release) — don't misreport that
+    as a missing package, or the real cause never surfaces.
+    """
+    if importlib.util.find_spec("mcp") is None:
+        return SystemExit(
+            "the MCP server needs the 'mcp' package — install with: pip install \"mnemosyne-reflexion[mcp]\""
+        )
+    return SystemExit(
+        "the MCP server found an installed 'mcp' package but failed to import "
+        f"mcp.server.fastmcp.FastMCP from it: {exc}"
+    )
+
 
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError as e:  # pragma: no cover
-    raise SystemExit(
-        "the MCP server needs the 'mcp' package — install with: pip install \"mnemosyne-reflexion[mcp]\""
-    ) from e
+    raise _mcp_import_error(e) from e
 
 mcp = FastMCP("mnemosyne")
 
