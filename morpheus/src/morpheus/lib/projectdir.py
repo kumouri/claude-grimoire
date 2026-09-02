@@ -3,7 +3,7 @@ and expose the dreaming runtime directories.
 
 Claude Code stores per-project data under ``~/.claude/projects/<slug>`` where
 ``<slug>`` is the absolute cwd with every non-alphanumeric character replaced by
-``-`` (e.g. ``C:\\Users\\willa\\repo`` -> ``C--Users-willa-repo``).
+``-`` (e.g. ``C:\\Users\\alice\\repo`` -> ``C--Users-alice-repo``).
 """
 from __future__ import annotations
 
