@@ -24,8 +24,8 @@ dependencies = ["mnemosyne-reflexion", "morpheus-dreaming", "mcp>=1.2"]
 grimoire-mcp = "grimoire.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/ceryce/claude-grimoire"
-Source = "https://github.com/ceryce/claude-grimoire/tree/main/grimoire"
+Homepage = "https://github.com/kumouri/claude-grimoire"
+Source = "https://github.com/kumouri/claude-grimoire/tree/main/grimoire"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
