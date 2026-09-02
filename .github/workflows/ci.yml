@@ -70,6 +70,16 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Blocking. This repo is public, so an absolute path from a contributor's
+      # machine is a leak the moment it merges. The guard is shape-based and
+      # holds no secret terms — see scripts/check_identifiers.py, which also
+      # documents what it deliberately cannot see.
+      - name: "Identifier guard: unit tests"
+        run: python -m unittest discover -s scripts -p "test_check_identifiers.py" -t scripts -v
+
+      - name: "Identifier guard: scan tracked files"
+        run: python scripts/check_identifiers.py
+
       - name: Run unittest suite
         run: python -m unittest discover -s tests -t . -v
 

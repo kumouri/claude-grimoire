@@ -17,6 +17,7 @@ presentable.
 | `agents/` | Custom subagent definition files. |
 | `docs/` | Cross-cutting architecture docs + mermaid diagrams (e.g. `docs/grimoire/`). |
 | `tests/` | Python `unittest` suite (gated by CI). Run: `python -m unittest discover -s tests -t .`. |
+| `scripts/` | Repo-maintenance scripts + their tests (e.g. the CI identifier guard). |
 | `mnemosyne/` | Self-contained reflexion-memory engine (package · CLI · MCP server · plugin). Own `README.md`. |
 | `morpheus/` | Self-contained session-dreaming/consolidation engine (package · CLI · MCP server · plugin). Own `README.md`. |
 | `grimoire/` | Umbrella: unified MCP server + plugin composing mnemosyne + morpheus. Own `README.md`. |
@@ -65,6 +66,36 @@ distinct.
 When extending it, keep the engine dependency-free (the `mcp` package is an optional extra),
 drive new recall dimensions through config axes rather than hardcoding them, and keep
 `mnemosyne selftest` green (it's wired into the CI `tests/` suite).
+
+## This repo is public — the identifier guard
+
+Every byte committed here is published. `scripts/check_identifiers.py` is a **blocking** CI
+step (in the `Python tests` job) that rejects machine-specific identifiers in tracked files:
+Windows user-profile paths, other drive-absolute paths, POSIX home directories, WSL drive
+mounts, this project's GitHub URL under an org other than `kumouri`, and email addresses
+outside a small justified allowlist.
+
+```bash
+python scripts/check_identifiers.py
+python -m unittest discover -s scripts -p "test_check_identifiers.py" -t scripts
+```
+
+Rules for extending it:
+
+- **Match by shape, never by secret string.** A denylist of the private terms would have to
+  contain them, and committing it here would publish exactly what it protects. Before adding
+  any literal, ask: *would I be comfortable seeing this on the repo's GitHub page?*
+- **Use the sanctioned placeholders** (`<user>`, `alice`, `%USERNAME%`, `/home/runner`, …) when
+  docs need to show the shape of a path; add new ones to `PLACEHOLDER_NAMES`, documented.
+- **Keep the author.** Ceryce's name, her `@kumouri` handle and her contact address in package
+  author metadata are deliberate attribution — never "fix" them. The rule is *scrub the
+  machine, keep the author*. Allowlist entries need a comment saying why they are safe.
+- **Keep it green.** A check that lands red is a check someone disables.
+
+**What it cannot see:** it has no knowledge of any private denylist, and it scans only the
+working tree, never history. A green run means "no identifier of a *known shape* was found" —
+not "safe to publish". The pre-release gate is still a private `pii_sweep.py --repo … --history`
+run against that denylist; this is a cheap always-on subset of it.
 
 ## Branching — Git Flow
 
