@@ -1,0 +1,491 @@
+"""CI coverage for the Zethus Copilot process kit.
+
+Covers the four stdlib scripts (run-local-gates, new-adr, new-spec, docs-pointer-check), the
+installer, and the kit's own contract: every skill's frontmatter is valid for Copilot, the minimum
+spec stays a strict subset of the full one, and the kit's Markdown has no broken pointers.
+
+Each script is loaded from its file (the names are hyphenated, so they aren't importable modules)
+and driven through ``main(argv)`` against a throwaway temp repo.
+"""
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+KIT = REPO / "zethus"
+SCRIPTS = KIT / "scripts"
+
+REQUIRED_SKILLS = {
+    "research-existing-code", "write-spec-full", "write-spec-minimum", "write-adr",
+    "fresh-eyes-investigation", "implement-phase", "test-plan", "pre-push-gates",
+    "pr-description", "docs-sync-check",
+}
+
+
+def load(path: Path):
+    name = "zethus_" + path.stem.replace("-", "_")
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module          # dataclasses resolve annotations through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+gates_mod = load(SCRIPTS / "run-local-gates.py")
+adr_mod = load(SCRIPTS / "new-adr.py")
+spec_mod = load(SCRIPTS / "new-spec.py")
+pointer_mod = load(SCRIPTS / "docs-pointer-check.py")
+install_mod = load(KIT / "install.py")
+
+
+def run(module, *argv: str) -> tuple[int, str]:
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        code = module.main(list(argv))
+    return code, out.getvalue() + err.getvalue()
+
+
+def py(code: str) -> list[str]:
+    return [sys.executable, "-c", code]
+
+
+def frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return {}
+    fields = {}
+    for line in m.group(1).splitlines():
+        key, sep, value = line.partition(":")
+        if sep and not line.startswith(" "):
+            fields[key.strip()] = value.strip().strip('"')
+    return fields
+
+
+def headings(path: Path) -> list[str]:
+    return [ln[3:].strip() for ln in path.read_text(encoding="utf-8").splitlines()
+            if ln.startswith("## ")]
+
+
+class TempRepo(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def config(self, data: dict, where: str = ".github/zethus.config.json") -> None:
+        path = self.repo / where
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+    def write(self, rel: str, text: str = "") -> Path:
+        path = self.repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+
+class RunLocalGates(TempRepo):
+    def gates(self, *argv):
+        return run(gates_mod, "--repo", str(self.repo), *argv)
+
+    def test_all_pass_is_full_green(self):
+        self.config({"gates": {"steps": [{"name": "a", "command": py("pass")},
+                                         {"name": "b", "command": py("pass")}]}})
+        code, out = self.gates()
+        self.assertEqual(code, 0, out)
+        self.assertIn("| a | PASS |", out)
+        self.assertIn("GREEN — every gate ran and passed", out)
+
+    def test_failure_is_red_and_shows_output_tail(self):
+        self.config({"gates": {"steps": [
+            {"name": "ok", "command": py("pass")},
+            {"name": "broken", "command": py("print('boom-marker'); raise SystemExit(3)")},
+        ]}})
+        code, out = self.gates()
+        self.assertEqual(code, 1, out)
+        self.assertIn("| broken | FAIL |", out)
+        self.assertIn("exit 3", out)
+        self.assertIn("RED — fix before pushing: broken", out)
+        self.assertIn("boom-marker", out)
+
+    def test_missing_tool_is_skip_not_green(self):
+        self.config({"gates": {"steps": [
+            {"name": "ok", "command": py("pass")},
+            {"name": "ghost", "command": "zethus-no-such-tool-xyz --check"},
+        ]}})
+        code, out = self.gates()
+        self.assertEqual(code, 3, out)
+        self.assertIn("| ghost | SKIP |", out)
+        self.assertIn("NOT checked: ghost", out)
+        self.assertNotIn("every gate ran", out)
+
+    def test_expected_nonzero_exit_passes(self):
+        self.config({"gates": {"steps": [
+            {"name": "grep-none", "command": py("raise SystemExit(1)"), "exitCode": 1}]}})
+        code, out = self.gates()
+        self.assertEqual(code, 0, out)
+        self.assertIn("exit 1 (expected)", out)
+
+    def test_amphion_config_is_read_and_prose_checks_are_manual(self):
+        self.config({"gates": {"test": py("pass"), "mandatedChecks": [
+            {"name": "no-todo", "command": "git grep TODO", "expect": "0 hits"}]}},
+            where=".claude/amphion.config.json")
+        code, out = self.gates()
+        self.assertEqual(code, 3, out)
+        self.assertIn(".claude/amphion.config.json", out)
+        self.assertIn("| test | PASS |", out)
+        self.assertIn("| no-todo | MANUAL |", out)
+        self.assertIn("expect: 0 hits", out)
+
+    def test_zethus_config_wins_over_amphion(self):
+        self.config({"gates": {"steps": [{"name": "mine", "command": py("pass")}]}})
+        self.config({"gates": {"test": py("raise SystemExit(1)")}}, where=".claude/amphion.config.json")
+        code, out = self.gates()
+        self.assertEqual(code, 0, out)
+        self.assertIn("| mine | PASS |", out)
+
+    def test_no_gates_is_not_green(self):
+        code, out = self.gates()
+        self.assertEqual(code, 2)
+        self.assertIn("no gates found", out)
+
+    def test_only_selects_and_says_partial(self):
+        self.config({"gates": {"steps": [{"name": "a", "command": py("pass")},
+                                         {"name": "b", "command": py("raise SystemExit(1)")}]}})
+        code, out = self.gates("--only", "a")
+        self.assertEqual(code, 0, out)
+        self.assertIn("not a full run", out)
+        self.assertNotIn("| b |", out)
+
+    def test_only_unknown_gate_is_usage_error(self):
+        self.config({"gates": {"steps": [{"name": "a", "command": py("pass")}]}})
+        code, out = self.gates("--only", "nope")
+        self.assertEqual(code, 2)
+        self.assertIn("unknown gate", out)
+
+    def test_invalid_config_is_usage_error(self):
+        self.write(".github/zethus.config.json", "{not json")
+        code, out = self.gates()
+        self.assertEqual(code, 2)
+        self.assertIn("not valid JSON", out)
+
+    def test_discovers_package_json_scripts_with_lockfile_manager(self):
+        self.write("package.json", json.dumps({"scripts": {"test": "x", "lint": "y", "dev": "z"}}))
+        self.write("yarn.lock")
+        code, out = self.gates("--list")
+        self.assertEqual(code, 0, out)
+        names = [ln.split("\t")[0] for ln in out.strip().splitlines()]
+        self.assertEqual(names, ["lint", "test"])
+        self.assertIn("yarn run lint", out)
+
+    def test_discovers_python_unittest_or_pytest(self):
+        self.write("tests/test_x.py", "")
+        _, out = self.gates("--list")
+        self.assertIn("python -m unittest", out)
+        self.assertNotIn(sys.executable, out, "interpreter path would leak into pasted tables")
+        self.write("pyproject.toml", "[tool.pytest.ini_options]\n")
+        _, out = self.gates("--list")
+        self.assertIn("pytest", out)
+        self.assertNotIn("unittest", out)
+
+    def test_header_reports_tree_state(self):
+        self.config({"gates": {"steps": [{"name": "a", "command": py("pass")}]}})
+        _, out = self.gates()
+        first = out.splitlines()[0]
+        self.assertTrue("not a git work tree" in first or "working tree" in first, first)
+
+
+class NewAdr(TempRepo):
+    def adr(self, *argv):
+        return run(adr_mod, "--repo", str(self.repo), *argv)
+
+    def test_creates_date_keyed_record_and_index(self):
+        code, out = self.adr("Use the outbox pattern", "--date", "2026-01-15", "--deciders", "Team A")
+        self.assertEqual(code, 0, out)
+        path = self.repo / "docs/adr/2026-01-15-use-the-outbox-pattern.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("# 2026-01-15-use-the-outbox-pattern: Use the outbox pattern", text)
+        self.assertIn("| Status | Proposed |", text)
+        self.assertIn("| Deciders | Team A |", text)
+        self.assertNotIn("{{", text)
+        index = (self.repo / "docs/adr/README.md").read_text(encoding="utf-8")
+        self.assertIn("| ID | Title | Status | Date |", index)
+        self.assertIn("[2026-01-15-use-the-outbox-pattern](2026-01-15-use-the-outbox-pattern.md)", index)
+
+    def test_second_record_appends_and_escapes_pipes(self):
+        self.adr("First", "--date", "2026-01-15")
+        self.adr("Pick A | B", "--date", "2026-01-16", "--status", "Accepted")
+        index = (self.repo / "docs/adr/README.md").read_text(encoding="utf-8")
+        self.assertEqual(index.count("| ID | Title |"), 1)
+        self.assertIn("| Pick A \\| B | Accepted | 2026-01-16 |", index)
+
+    def test_refuses_to_overwrite(self):
+        self.adr("Same", "--date", "2026-01-15")
+        path = self.repo / "docs/adr/2026-01-15-same.md"
+        path.write_text("hand edited", encoding="utf-8")
+        code, out = self.adr("Same", "--date", "2026-01-15")
+        self.assertEqual(code, 2)
+        self.assertIn("refusing to overwrite", out)
+        self.assertEqual(path.read_text(encoding="utf-8"), "hand edited")
+
+    def test_rejects_bad_date_and_empty_title(self):
+        self.assertEqual(self.adr("X", "--date", "15/01/2026")[0], 2)
+        self.assertEqual(self.adr("X", "--date", "2026-02-30")[0], 2)
+        self.assertEqual(self.adr("!!!")[0], 2)
+        self.assertFalse((self.repo / "docs").exists())
+
+    def test_config_dir_and_no_index(self):
+        self.config({"adr": {"dir": "decisions"}})
+        code, _ = self.adr("Thing", "--date", "2026-01-15", "--no-index")
+        self.assertEqual(code, 0)
+        self.assertTrue((self.repo / "decisions/2026-01-15-thing.md").is_file())
+        self.assertFalse((self.repo / "decisions/README.md").exists())
+
+
+class NewSpec(TempRepo):
+    def spec(self, *argv):
+        return run(spec_mod, "--repo", str(self.repo), *argv)
+
+    def test_full_and_minimum_are_created_as_draft(self):
+        for kind in ("full", "minimum"):
+            code, out = self.spec(kind, f"Retry webhooks {kind}", "--owner", "Payments",
+                                  "--date", "2026-01-15")
+            self.assertEqual(code, 0, out)
+            text = (self.repo / f"docs/specs/retry-webhooks-{kind}.md").read_text(encoding="utf-8")
+            self.assertIn(f"# Retry webhooks {kind}", text)
+            self.assertIn("**Status:** DRAFT", text)
+            self.assertIn("**Owner:** Payments", text)
+            self.assertNotIn("{{", text)
+
+    def test_refuses_to_overwrite(self):
+        self.spec("minimum", "Thing")
+        code, out = self.spec("full", "Thing")
+        self.assertEqual(code, 2)
+        self.assertIn("refusing to overwrite", out)
+
+    def test_config_dir(self):
+        self.config({"spec": {"dir": "design"}})
+        self.assertEqual(self.spec("minimum", "Thing")[0], 0)
+        self.assertTrue((self.repo / "design/thing.md").is_file())
+
+
+class DocsPointerCheck(TempRepo):
+    def check(self, *argv):
+        return run(pointer_mod, "--repo", str(self.repo), *argv)
+
+    def test_clean_links_pass(self):
+        self.write("docs/guide.md", "# Guide\n")
+        self.write("README.md", "See [the guide](docs/guide.md#setup), [site](https://example.com), "
+                                "[top](#readme) and [dir](docs/).\n")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("0 broken", out)
+
+    def test_broken_link_reported_with_line(self):
+        self.write("README.md", "# T\n\nSee [gone](docs/missing.md).\n")
+        code, out = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn("README.md:3: broken pointer -> docs/missing.md (does not exist)", out)
+
+    def test_case_mismatch_is_broken(self):
+        self.write("docs/Guide.md", "# Guide\n")
+        self.write("README.md", "[g](docs/guide.md)\n")
+        code, out = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn("case mismatch", out)
+
+    def test_code_is_ignored(self):
+        self.write("README.md", "```\n[x](nope.md)\n```\n\n`[y](nope2.md)`\n\n~~~md\n[z](n.md)\n~~~\n")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+
+    def test_reference_definitions_and_escape(self):
+        self.write("sub/a.md", "[ref]: ../missing.md\n\n[out](../../outside.md)\n")
+        code, out = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn("missing.md (does not exist)", out)
+        self.assertIn("points outside the repository", out)
+
+    def test_code_spans_opt_in(self):
+        self.write("src/app.py", "")
+        self.write("README.md", "Edit `src/app.py:10` not `src/gone.py`, e.g. `npm run lint`.\n")
+        self.assertEqual(self.check()[0], 0)
+        code, out = self.check("--code-spans")
+        self.assertEqual(code, 1)
+        self.assertIn("`src/gone.py`", out)
+        self.assertNotIn("app.py", out.split("broken pointer")[-1].split("\n")[0])
+
+    def test_ignore_glob(self):
+        self.write("CHANGELOG.md", "[old](gone.md)\n")
+        self.assertEqual(self.check("--ignore", "CHANGELOG.md")[0], 0)
+
+    @unittest.skipUnless(shutil.which("git"), "git not installed")
+    def test_sync_base_reports_stale_docs(self):
+        def git(*args):
+            subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t",
+                            "-c", "user.email=t@example.com", *args],
+                           check=True, capture_output=True)
+        git("init", "-q", "-b", "base")
+        self.write("README.md", "# App\n")
+        self.write("api/README.md", "# API\n")
+        self.write("api/handler.py", "x = 1\n")
+        self.write("cli/main.py", "y = 1\n")
+        self.config({"docSync": {"map": [
+            {"doc": "README.md", "describes": ["cli/*"]},
+            {"doc": "api/README.md", "describes": ["api/*.py"]}]}})
+        git("add", "-A")
+        git("commit", "-q", "-m", "init")
+        git("checkout", "-q", "-b", "work")
+        self.write("api/handler.py", "x = 2\n")
+        self.write("cli/main.py", "y = 2\n")
+        self.write("README.md", "# App v2\n")
+        code, out = self.check("--sync-base", "base")
+        self.assertEqual(code, 0, out)
+        self.assertIn("REVIEW   api/README.md — describes changed: api/handler.py", out)
+        self.assertIn("UPDATED  README.md", out)
+
+        code, out = self.check("--sync-base", "no-such-ref")
+        self.assertEqual(code, 0)
+        self.assertIn("docs sync: no answer", out)
+
+
+class Installer(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def install(self, *argv):
+        return run(install_mod, "--target", str(self.target), *argv)
+
+    def test_installs_every_piece_to_its_copilot_location(self):
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        gh = self.target / ".github"
+        self.assertTrue((gh / "copilot-instructions.md").is_file())
+        self.assertTrue((gh / "agents/zethus.agent.md").is_file())
+        self.assertTrue((gh / "instructions/docs.instructions.md").is_file())
+        for skill in REQUIRED_SKILLS:
+            self.assertTrue((gh / "skills" / skill / "SKILL.md").is_file(), skill)
+        for tpl in ("spec-full.md", "spec-minimum.md", "adr.md", "pr.md"):
+            self.assertTrue((gh / "zethus/templates" / tpl).is_file(), tpl)
+        self.assertTrue((gh / "zethus/scripts/run-local-gates.py").is_file())
+        self.assertTrue((gh / "zethus.config.json").is_file())
+
+    def test_installed_scripts_find_installed_templates(self):
+        self.install()
+        saved_common, saved_path = sys.modules.pop("_common", None), list(sys.path)
+        try:
+            installed = load(self.target / ".github/zethus/scripts/new-spec.py")
+            self.assertEqual(Path(sys.modules["_common"].TEMPLATES_DIR).resolve(),
+                             (self.target / ".github/zethus/templates").resolve())
+            code, out = run(installed, "--repo", str(self.target), "minimum", "Thing")
+        finally:
+            sys.modules["_common"] = saved_common
+            sys.path[:] = saved_path
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.target / "docs/specs/thing.md").is_file())
+
+    def test_conflicts_write_nothing_without_force(self):
+        self.install()
+        agent = self.target / ".github/agents/zethus.agent.md"
+        agent.write_text("local edit", encoding="utf-8")
+        (self.target / ".github/skills/test-plan/SKILL.md").unlink()
+        code, out = self.install()
+        self.assertEqual(code, 1)
+        self.assertIn(".github/agents/zethus.agent.md", out)
+        self.assertEqual(agent.read_text(encoding="utf-8"), "local edit")
+        self.assertFalse((self.target / ".github/skills/test-plan/SKILL.md").exists())
+
+    def test_existing_repo_files_are_never_clobbered(self):
+        gh = self.target / ".github"
+        gh.mkdir()
+        (gh / "copilot-instructions.md").write_text("repo rules", encoding="utf-8")
+        (gh / "zethus.config.json").write_text("{}", encoding="utf-8")
+        code, out = self.install("--force")
+        self.assertEqual(code, 0, out)
+        self.assertEqual((gh / "copilot-instructions.md").read_text(encoding="utf-8"), "repo rules")
+        self.assertEqual((gh / "zethus.config.json").read_text(encoding="utf-8"), "{}")
+        fallback = gh / "instructions/zethus.instructions.md"
+        self.assertEqual(frontmatter(fallback).get("applyTo"), "**")
+
+    def test_dry_run_writes_nothing(self):
+        code, out = self.install("--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("dry run", out)
+        self.assertFalse((self.target / ".github").exists())
+
+
+class KitContract(unittest.TestCase):
+    """What Copilot requires of the kit's files, per its customization docs (see zethus/README.md)."""
+
+    def test_every_required_skill_exists_with_valid_frontmatter(self):
+        found = {p.name for p in (KIT / "skills").iterdir() if p.is_dir()}
+        self.assertEqual(found, REQUIRED_SKILLS)
+        for name in found:
+            fm = frontmatter(KIT / "skills" / name / "SKILL.md")
+            self.assertEqual(fm.get("name"), name, f"{name}: name must match its directory")
+            self.assertRegex(fm["name"], r"^[a-z0-9]+(-[a-z0-9]+)*$")
+            self.assertLessEqual(len(fm["name"]), 64)
+            self.assertTrue(fm.get("description"), f"{name}: description is required")
+            self.assertLessEqual(len(fm["description"]), 1024, name)
+
+    def test_agent_frontmatter(self):
+        path = KIT / "agents/zethus.agent.md"
+        fm = frontmatter(path)
+        self.assertTrue(fm.get("description"))
+        self.assertEqual(fm.get("name"), "zethus")
+        self.assertRegex(path.name, r"^[A-Za-z0-9._-]+$")
+        self.assertLess(len(path.read_text(encoding="utf-8")), 30000)
+        tools = json.loads(fm["tools"])
+        self.assertTrue(set(tools) <= {"read", "search", "edit", "execute", "web", "todo", "agent"})
+
+    def test_agent_links_every_skill(self):
+        text = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        for name in REQUIRED_SKILLS:
+            self.assertIn(f"../skills/{name}/SKILL.md", text)
+
+    def test_path_instructions_have_apply_to(self):
+        for path in (KIT / "instructions").glob("*.instructions.md"):
+            self.assertTrue(frontmatter(path).get("applyTo"), path.name)
+
+    def test_minimum_spec_headings_are_a_strict_ordered_subset_of_full(self):
+        full = headings(KIT / "templates/spec-full.md")
+        minimum = headings(KIT / "templates/spec-minimum.md")
+        self.assertTrue(set(minimum) < set(full), set(minimum) - set(full))
+        self.assertEqual(minimum, [h for h in full if h in minimum], "same relative order")
+        self.assertEqual(full[full.index("Phases") - 1], "Design")
+
+    def test_pr_template_keeps_the_headings_other_stages_file_under(self):
+        pr = headings(KIT / "templates/pr.md")
+        for h in ("Evidence", "What was not checked", "Not in this PR (intentional)",
+                  "Noticed but out of scope", "Decisions needed from the reviewer"):
+            self.assertIn(h, pr)
+
+    def test_example_config_is_valid_and_its_gates_parse(self):
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        gates = gates_mod.gates_from_config(config)
+        self.assertEqual([g.name for g in gates], ["lint", "typecheck", "test", "build"])
+
+    def test_kit_markdown_has_no_broken_pointers(self):
+        code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
+        self.assertEqual(code, 0, out)
+
+
+if __name__ == "__main__":
+    unittest.main()
