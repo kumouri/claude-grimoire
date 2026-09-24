@@ -15,6 +15,7 @@ presentable.
 | `hooks/` | One folder per hook: the `settings.json` snippet and the script(s) it invokes. |
 | `commands/` | Custom slash command files. |
 | `agents/` | Custom subagent definition files. |
+| `zethus/` | GitHub Copilot process kit: one enforcing agent, ten skills, templates, stdlib scripts, installer. Own `README.md`. |
 | `docs/` | Cross-cutting architecture docs + mermaid diagrams (e.g. `docs/grimoire/`). |
 | `tests/` | Python `unittest` suite (gated by CI). Run: `python -m unittest discover -s tests -t .`. |
 | `mnemosyne/` | Self-contained reflexion-memory engine (package · CLI · MCP server · plugin). Own `README.md`. |
@@ -23,6 +24,10 @@ presentable.
 
 When adding a new artifact, drop it in the matching directory and give it a short README or
 header comment explaining what it does and how to install/use it.
+
+`zethus/` targets **GitHub Copilot**, not Claude Code — it installs into a consuming repo's `.github/`.
+Keep it org-neutral and its scripts stdlib-only; maintenance rules are in
+[`zethus/README.md`](zethus/README.md#maintaining-this-kit), coverage in `tests/test_zethus.py`.
 
 ## Featured — Grimoire (Mnemosyne + Morpheus)
 

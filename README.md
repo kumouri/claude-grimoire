@@ -37,9 +37,18 @@ composes both and exposes all nine tools on one server. Architecture + diagrams:
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
 | [`commands/`](commands/) | Standalone custom slash commands. |
 | [`agents/`](agents/) | Custom subagent definitions. |
+| [`zethus/`](zethus/) | GitHub Copilot process kit — enforcing agent, ten skills, templates, scripts. |
 | [`docs/`](docs/) | Cross-cutting architecture docs and diagrams (e.g. `docs/grimoire/`). |
 
 Each directory has its own README describing conventions and what belongs there.
+
+## 🪨 For GitHub Copilot — Zethus
+
+**[Zethus](zethus/)** — my development process, packaged for GitHub Copilot and installable into
+any repository's `.github/`. One custom agent walks every change through research → spec →
+sign-off → phased implementation (Phase 0 changes no behaviour) → tests → local gates → a PR with
+evidence, and refuses to skip a stage; ten standalone skills, spec/ADR/PR templates, and stdlib
+scripts (`run-local-gates`, `new-adr`, `new-spec`, `docs-pointer-check`) carry the procedures.
 
 ## 🌿 Git Flow
 
