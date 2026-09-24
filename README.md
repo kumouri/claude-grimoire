@@ -36,8 +36,8 @@ composes both and exposes all nine tools on one server. Architecture + diagrams:
 | [`skills/`](skills/) | Standalone custom Skills not tied to an engine. |
 | [`hooks/`](hooks/) | Standalone Claude Code hooks. |
 | [`commands/`](commands/) | Standalone custom slash commands. |
-| [`agents/`](agents/) | Custom subagent definitions. |
 | [`zethus/`](zethus/) | GitHub Copilot process kit — enforcing agent, ten skills, templates, scripts. |
+| [`agents/`](agents/) | Custom subagent definitions. |
 | [`docs/`](docs/) | Cross-cutting architecture docs and diagrams (e.g. `docs/grimoire/`). |
 
 Each directory has its own README describing conventions and what belongs there.
