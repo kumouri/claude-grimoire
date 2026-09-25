@@ -20,6 +20,7 @@ presentable.
 | `mnemosyne/` | Self-contained reflexion-memory engine (package · CLI · MCP server · plugin). Own `README.md`. |
 | `morpheus/` | Self-contained session-dreaming/consolidation engine (package · CLI · MCP server · plugin). Own `README.md`. |
 | `grimoire/` | Umbrella: unified MCP server + plugin composing mnemosyne + morpheus. Own `README.md`. |
+| `amphion/` | Spec-to-PR implementation pipeline: seven skills + one plugin, config-driven, no runtime. Own `README.md`. |
 
 When adding a new artifact, drop it in the matching directory and give it a short README or
 header comment explaining what it does and how to install/use it.
@@ -42,6 +43,22 @@ When extending morpheus, keep `dispatch.py` non-blocking and error-swallowing, p
 recursion guard (`--bare` + `CLAUDE_MORPHEUS` + `CLAUDE_CODE_CHILD_SESSION`), and keep all three
 engines emitting the same `DreamResult` contract. When extending grimoire, keep it a thin composer —
 new capability belongs in an engine, surfaced through the umbrella. Add/adjust tests in `tests/`.
+
+## Featured — Amphion
+
+`amphion/` is a spec-to-PR implementation pipeline shipped as seven composable skills under one
+plugin (`amphion/plugin/`): `load-context` → implement (`flag-or-fix` / `resume-interrupted-phase`)
+→ `initialize-ci` → `pr-description` → `sync-claude-md` → `log-friction`. Pure markdown, no
+runtime. Every project-specific fact — document set and read order, ledger path, gate commands,
+mandated checks, integration branch, friction sink, doc-to-code map — lives in the consuming
+project's `.claude/amphion.config.json` (example: `amphion/amphion.config.example.json`). Pipeline:
+[`amphion/docs/pipeline.md`](amphion/docs/pipeline.md).
+
+When extending amphion, keep the skills **config-driven and org-neutral** — no client names, no
+private paths, no hardcoded document titles; a new project-specific fact becomes a config key, not
+a literal. Keep the resolution order (config → repo evidence → ask the user; never guess silently).
+**Do not widen `sync-claude-md`** — it may only rewrite in place, never append, and only for a doc
+whose described code changed in the same diff; the rationale is in the skill and must stay there.
 
 ## Featured artifact — Mnemosyne
 
