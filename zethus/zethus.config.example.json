@@ -2,7 +2,9 @@
   "_readme": "Installed as .github/zethus.config.json in YOUR repo; edit it there. Every key is optional: the scripts and agent fall back to repository evidence, then ask. Key names match Amphion's .claude/amphion.config.json wherever they overlap (gates, branchModel, docSync), and the scripts read that file when this one is absent.",
 
   "branchModel": {
-    "base": "develop"
+    "base": "develop",
+    "style": "branch-per-change",
+    "maxBehind": 0
   },
 
   "gates": {

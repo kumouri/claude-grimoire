@@ -3,7 +3,7 @@
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → local
 gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
-each. Four Markdown templates and four stdlib Python scripts do the mechanical parts. It installs into
+each. Four Markdown templates and five stdlib Python scripts do the mechanical parts. It installs into
 a repository's `.github/` folder, or once for your user account under `~/.copilot/` so it follows
 you into every repo without changing any of them. Nothing in it is specific to one organization.
 
@@ -47,7 +47,7 @@ merges, only on green. One narrow exemption is written down too. A change with n
 | [`skills/write-spec-full`](skills/write-spec-full/SKILL.md) | `.github/skills/` | Verbatim ask, measured problem, facts, assumptions checked, options, phases, rollback, out of scope, open questions, then stop for sign-off. |
 | [`skills/write-adr`](skills/write-adr/SKILL.md) | `.github/skills/` | One imperative decision sentence, options, consequences, *enforced where*, *revisit when*. Pastes cleanly into a wiki or ticket. |
 | [`skills/fresh-eyes-investigation`](skills/fresh-eyes-investigation/SKILL.md) | `.github/skills/` | Artifact plus one line of intent in; ranked leads out, each established or conjecture. Never a diagnosis; an empty list is valid. |
-| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch, Phase 0 first. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
+| [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch (or per commit series, in `rebase` style), Phase 0 first. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. |
 | [`skills/pr-description`](skills/pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
@@ -56,6 +56,7 @@ merges, only on green. One narrow exemption is written down too. A change with n
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
 | [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
+| [`scripts/base-freshness.py`](scripts/base-freshness.py) | `.github/zethus/scripts/` | Fetches, counts the commits in `HEAD..origin/<base>`, and stops the stage if there are more than `branchModel.maxBehind`. Prints the merge-base to diff against, and whether the branch was rewritten since its last push. The agent runs it at the start of every stage. Exit codes: `0` fresh · `1` stale, rebase first · `2` usage error · `3` no answer (the fetch failed). |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
@@ -269,7 +270,9 @@ The keys are the same in every location.
 
 | Key | Used by | Meaning |
 |---|---|---|
-| `branchModel.base` | agent, `pr-description`, `docs-sync-check` | The integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.base` | agent, `pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.style` | agent, `implement-phase`, `pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
+| `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a stage refuses to start. Default `0`: any commit behind means rebase first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
 | `spec.dir`, `spec.templates.{full,minimum}` | `new-spec` | Default `docs/specs`, and the kit's templates. |
@@ -277,6 +280,28 @@ The keys are the same in every location.
 | `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. It is Amphion's key. Globs use `fnmatch` rules, so `*` also matches `/`. |
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
+
+### Branch models
+
+Zethus assumes nothing about how long a branch lives. It insists only that the base is fresh.
+
+| | `branch-per-change` (default) | `rebase` |
+|---|---|---|
+| Branches | A new one per change, cut from `origin/<base>` | One long-lived branch, rebased onto `origin/<base>` every few days |
+| Phases | One branch and one PR each | One commit series each, on the same branch, Phase 0 first |
+| Diff base | `origin/<base>...HEAD` | The same: the merge-base with the freshly fetched `origin/<base>`, never a local ref |
+| After a rebase | — | Push with `--force-with-lease`; the PR body names the new base |
+
+In both, the agent runs `base-freshness.py` at the start of every stage, and `pre-push-gates`
+runs it before the gates. A stale base doesn't look stale. Diffs, measurements and research notes
+taken on one quietly compare branch drift instead of the change, and the PR can revert work that
+already landed. So the check counts commits rather than trusting the checkout. Raise
+`branchModel.maxBehind` only as a recorded decision; the default of `0` means any commit behind
+stops the stage.
+
+```json
+{ "branchModel": { "base": "develop", "style": "rebase", "maxBehind": 0 } }
+```
 
 ## Copilot formats used, and where they're documented
 
@@ -309,7 +334,8 @@ protection, not by this kit.
 the same design where they overlap, rather than duplicating it:
 
 - **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`,
-  `docSync.map`) mean the same thing. When no Zethus config is found in the repo, the scripts read
+  `docSync.map`) mean the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
+  own; Amphion ignores them. When no Zethus config is found in the repo, the scripts read
   `.claude/amphion.config.json`, so a repo using both answers each question once.
 - **Different stages.** Amphion covers what happens *after* the decisions: loading decided
   context, `flag-or-fix` when the spec runs out, `resume-interrupted-phase` when a delegate dies,

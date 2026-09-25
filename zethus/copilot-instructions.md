@@ -12,6 +12,12 @@ or ask. Never guess one.
   exists; otherwise the default branch. Fetch first and use the fully-qualified ref
   (`origin/develop`), never a local copy that may be stale.
 - One task, one branch. Run parallel tasks in separate worktrees, never in one shared checkout.
+  If `branchModel.style` is `rebase`, the task lives on one long-lived branch kept rebased onto
+  the integration branch instead; phases are commit series on it, not new branches.
+- **Never work on a stale base.** At the start of every stage, and before the gates, run
+  `python .github/zethus/scripts/base-freshness.py`. If it reports STALE (more than
+  `branchModel.maxBehind` commits behind, default 0), rebase before doing anything else. Diff
+  against the merge-base it prints, never against a local branch.
 
 ## Research before you claim
 

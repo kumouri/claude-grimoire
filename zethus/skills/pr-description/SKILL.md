@@ -19,7 +19,21 @@ Work out the integration branch. Don't assume `main`:
 
 Fetch first, then read `git log --oneline origin/<base>..HEAD` and `git diff origin/<base>...HEAD`.
 The three-dot diff is against the merge-base, so it describes *your* changes, not everything that
-landed on the base since you branched.
+landed on the base since you branched. `python .github/zethus/scripts/base-freshness.py` fetches,
+prints that merge-base, and stops you if the branch is behind the base: rebase first if it does.
+Never diff against a local `<base>`; it is only as fresh as your last pull.
+
+**A rebased branch.** If `branchModel.style` is `rebase`, or `base-freshness` reports the upstream
+as *rewritten since the last push*, the branch has been rebased. Push it with
+`git push --force-with-lease`, never a plain `--force`. Then, in the PR body (under *What*), and in
+a PR comment if the PR already exists, say:
+
+- that the branch was rebased, and onto what: `origin/<base>` at the new merge-base (short SHA);
+- whether the rebase changed anything beyond the base moving (conflicts resolved, commits dropped
+  or reworded). If it did, say where; the approval covered the earlier commits.
+
+Recompute *Changes* and *Evidence* against the new merge-base. A body written before the rebase
+describes a diff that no longer exists.
 
 ## Step 2: fill the template
 
@@ -53,6 +67,8 @@ push again after review, say so in a comment: the approval covered the earlier c
 
 - **Diffing against `main` in a repo that integrates on `develop`.** You'd describe every commit
   since the last release.
+- **Diffing against a stale ref.** A local `develop`, or an `origin/develop` not fetched since the
+  last rebase, puts other people's commits in your description, or hides the ones you rebased over.
 - **"All tests pass"** without saying which ones ran, where, and on what tree.
 - **Hiding a judgment call in the diff.** If you decided something the spec didn't, it belongs
   under *Decisions needed*, or in an ADR.
