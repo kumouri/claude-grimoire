@@ -12,7 +12,12 @@ Where the gates come from, in order:
    plus ``gates.mandatedChecks[]``. A mandated check with no ``exitCode`` has only a prose
    ``expect``, which a script cannot judge — it is listed as MANUAL, and counted as not checked.
 3. Discovery from repo evidence: ``package.json`` scripts, ``Makefile`` targets, Python
-   (ruff / pytest / unittest), Gradle, Maven, .NET, Go, Cargo.
+   (ruff / pytest / unittest), Gradle, Maven, .NET, Go, Cargo. A Maven or Gradle wrapper in the
+   repo (``mvnw.cmd`` / ``gradlew.bat`` on Windows, ``mvnw`` / ``gradlew`` elsewhere) is preferred
+   over the tool on PATH, because CI usually runs the wrapper's pinned version.
+
+The config is the first one found of ``.github/zethus.config.json``, ``$ZETHUS_CONFIG``,
+``.copilot/zethus.config.json``, ``.claude/amphion.config.json`` and ``~/.copilot/zethus/config.json``.
 
 Rules it keeps, because each one is a way a local run lies:
 
@@ -22,6 +27,9 @@ Rules it keeps, because each one is a way a local run lies:
   verdict says in words that the run was incomplete, and the exit code differs from a full green.
 - **The verdict is the command's exit code.** Output is never parsed to decide PASS/FAIL.
 - **No shell.** Commands run as argv lists; a config string is split with ``shlex``.
+- **Windows wrappers resolve like a shell would.** A bare ``mvn`` or ``./mvnw`` finds ``mvn.cmd`` /
+  ``mvnw.cmd`` through ``PATHEXT``. An extensionless file (the POSIX ``mvnw`` script beside
+  ``mvnw.cmd``) is never picked on Windows, because Windows can't execute it.
 
 Exit codes: 0 every gate ran and passed (or the ``--only`` selection did) · 1 a gate failed ·
 2 usage error or no gates found · 3 nothing failed but some gates did not run.
@@ -121,6 +129,17 @@ def _read(path: Path) -> str:
         return ""
 
 
+def _wrapper(repo: Path, name: str) -> str | None:
+    """``./mvnw.cmd`` (Windows) or ``./mvnw`` (elsewhere) if the repo ships that wrapper.
+
+    Returned repo-relative with ``./`` so the table pasted into a PR never shows a host path.
+    """
+    for candidate in ((f"{name}.cmd", f"{name}.bat") if os.name == "nt" else (name,)):
+        if (repo / candidate).is_file():
+            return "./" + candidate
+    return None
+
+
 def discover(repo: Path) -> tuple[list[Gate], list[str]]:
     """Gates inferred from build files. Returns ``(gates, evidence_files)``."""
     gates: list[Gate] = []
@@ -168,13 +187,14 @@ def discover(repo: Path) -> tuple[list[Gate], list[str]]:
                               "python"))
         evidence.extend(py_markers or ["tests/"])
 
-    gradlew = repo / ("gradlew.bat" if os.name == "nt" else "gradlew")
-    if gradlew.is_file():
-        gates.append(Gate("gradle check", [str(gradlew), "check"], "gradle"))
-        evidence.append(gradlew.name)
+    gradlew = _wrapper(repo, "gradlew")
+    if gradlew:
+        gates.append(Gate("gradle check", [gradlew, "check"], "gradle"))
+        evidence.append(gradlew[2:])
     elif (repo / "pom.xml").is_file():
-        gates.append(Gate("maven verify", ["mvn", "-B", "verify"], "maven"))
-        evidence.append("pom.xml")
+        mvnw = _wrapper(repo, "mvnw")
+        gates.append(Gate("maven verify", [mvnw or "mvn", "-B", "verify"], "maven"))
+        evidence.append("pom.xml" + (f" + {mvnw[2:]}" if mvnw else ""))
 
     if any(repo.glob("*.sln")) or any(repo.glob("*.csproj")):
         gates.append(Gate("dotnet build", ["dotnet", "build"], "dotnet"))
@@ -196,11 +216,43 @@ def discover(repo: Path) -> tuple[list[Gate], list[str]]:
 # --------------------------------------------------------------------------- running
 
 
-def resolve(argv0: str, repo: Path) -> str | None:
-    if os.sep in argv0 or "/" in argv0:
-        candidate = Path(argv0) if Path(argv0).is_absolute() else repo / argv0
-        return str(candidate) if candidate.exists() else None
-    return shutil.which(argv0)
+def _pathext() -> list[str]:
+    raw = os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD"
+    return [e.lower() for e in raw.split(";") if e.strip()]
+
+
+def _windows_candidates(base: Path) -> list[Path]:
+    """What ``cmd.exe`` would try for ``base``: as given if it has a PATHEXT suffix, else each
+    PATHEXT suffix in order. An extensionless file is never a candidate: CreateProcess can't run
+    it, and in a Maven checkout ``mvnw`` (a POSIX script) sits right beside ``mvnw.cmd``."""
+    exts = _pathext()
+    if base.suffix.lower() in exts:
+        return [base]
+    return [base.with_name(base.name + ext) for ext in exts]
+
+
+def resolve(argv0: str, repo: Path, *, windows: bool | None = None,
+            path: str | None = None) -> str | None:
+    """Find the executable for ``argv0`` the way a shell would, without using one.
+
+    ``windows`` and ``path`` exist so tests can exercise the Windows rules on any OS.
+    """
+    windows = (os.name == "nt") if windows is None else windows
+    has_dir = "/" in argv0 or os.sep in argv0 or (windows and "\\" in argv0)
+    if has_dir:
+        base = Path(argv0) if Path(argv0).is_absolute() else repo / argv0
+        candidates = _windows_candidates(base) if windows else [base]
+        return next((str(c) for c in candidates if c.is_file()), None)
+    if not windows:
+        return shutil.which(argv0, path=path)
+    # An explicit PATHEXT walk rather than shutil.which: its Windows rules have changed across
+    # Python versions, and ``mvn`` beside ``mvn.cmd`` in Maven's bin/ is exactly the trap.
+    search = os.environ.get("PATH", "") if path is None else path
+    for folder in filter(None, search.split(os.pathsep)):
+        for candidate in _windows_candidates(Path(folder) / argv0):
+            if candidate.is_file():
+                return str(candidate)
+    return None
 
 
 def run_gate(gate: Gate, repo: Path, timeout: float | None) -> None:
@@ -292,8 +344,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="run-local-gates",
                                 description="Run the repo's gates locally; print a PASS/FAIL table.")
     p.add_argument("--repo", help="repository root (default: nearest .git ancestor of cwd)")
-    p.add_argument("--config", help="config file (default: .github/zethus.config.json, "
-                                    "then .claude/amphion.config.json)")
+    p.add_argument("--config", help="config file (default: the first of .github/zethus.config.json, "
+                                    "$ZETHUS_CONFIG, .copilot/zethus.config.json, "
+                                    ".claude/amphion.config.json, ~/.copilot/zethus/config.json)")
     p.add_argument("--only", action="append", metavar="GATE", help="run only this gate (repeatable)")
     p.add_argument("--list", action="store_true", help="list the gates and exit")
     p.add_argument("--timeout", type=float, default=None, help="per-gate timeout in seconds")
@@ -313,8 +366,9 @@ def main(argv: list[str] | None = None) -> int:
             gates, evidence = discover(repo)
             source = "auto-discovered from " + (", ".join(evidence) or "nothing")
         if not gates:
-            print("run-local-gates: no gates found. Add gates.steps to .github/zethus.config.json "
-                  "(see zethus.config.example.json). No gates is not a green run.")
+            print("run-local-gates: no gates found. Add gates.steps to .github/zethus.config.json, "
+                  "or to an untracked .copilot/zethus.config.json (see zethus.config.example.json). "
+                  "No gates is not a green run.")
             return 2
         if args.only:
             names = {g.name for g in gates}

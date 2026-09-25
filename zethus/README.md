@@ -3,8 +3,9 @@
 **A development process for GitHub Copilot, in a form Copilot can follow and enforce.** One custom
 agent runs every change through research → spec → sign-off → phased implementation → tests → local
 gates → a PR with evidence, and refuses to skip a stage. Ten standalone skills hold one procedure
-each. Four Markdown templates and four stdlib Python scripts do the mechanical parts. Everything
-installs into a repository's `.github/` folder, and nothing in it is specific to one organization.
+each. Four Markdown templates and four stdlib Python scripts do the mechanical parts. It installs into
+a repository's `.github/` folder, or once for your user account under `~/.copilot/` so it follows
+you into every repo without changing any of them. Nothing in it is specific to one organization.
 
 > Amphion and his twin Zethus built the walls of Thebes. Amphion played his lyre and the stones set
 > themselves. Zethus carried each stone by hand and set it true. [Amphion][amphion] is the
@@ -54,17 +55,28 @@ merges, only on green. One narrow exemption is written down too. A change with n
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
 | [`templates/pr.md`](templates/pr.md) | `.github/zethus/templates/` | The PR body: What · Why · Changes · Evidence · What was not checked · deferrals · decisions · docs · AI assistance. |
-| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
+| [`scripts/run-local-gates.py`](scripts/run-local-gates.py) | `.github/zethus/scripts/` | Discovers and runs lint/build/test, then prints a PASS/FAIL/SKIP table and an explicit verdict. Prefers a repo's `mvnw`/`gradlew` wrapper; on Windows a bare `mvn` or `./mvnw` resolves to `mvn.cmd`/`mvnw.cmd` through `PATHEXT`. Exit codes: `0` full green · `1` red · `3` green but incomplete · `2` nothing to run. |
 | [`scripts/new-adr.py`](scripts/new-adr.py) | `.github/zethus/scripts/` | Creates `docs/adr/YYYY-MM-DD-slug.md` and adds its row to the ADR index. Ids are keyed by date, so parallel branches never collide. |
 | [`scripts/new-spec.py`](scripts/new-spec.py) | `.github/zethus/scripts/` | `new-spec.py full\|minimum "Title"` creates `docs/specs/<slug>.md` as `DRAFT`. |
 | [`scripts/docs-pointer-check.py`](scripts/docs-pointer-check.py) | `.github/zethus/scripts/` | Fails on relative Markdown links that don't resolve, including case mismatches that only break on Linux. With `--sync-base`, it also lists docs whose described code changed (report-only). |
 | [`zethus.config.example.json`](zethus.config.example.json) | `.github/zethus.config.json` | Project facts: integration branch, gate commands, spec and ADR dirs, the doc-to-code map, the AI co-author trailer. |
-| [`install.py`](install.py) | — | Copies all of the above into place. Never clobbers the repo's own instructions file or config, and writes nothing if there are conflicts. |
+| [`install.py`](install.py) | — | Copies all of the above into place: into a repo (`--target`) or for your user account (`--user`, with `--uninstall`). Never clobbers a file it didn't write, and writes nothing if there are conflicts. |
 
 The scripts are Python 3.10+ standard library only. There are no PowerShell twins: Python runs
 natively on Windows, and a second implementation would be a second thing to drift.
 
-## Install into a repository
+## Install
+
+There are two modes. Pick one per machine and repo; they don't need each other.
+
+| | Repo mode (`--target`) | User mode (`--user`) |
+|---|---|---|
+| Where it goes | The repo's `.github/`, committed | `~/.copilot/`, on your machine only |
+| Who gets it | Everyone who clones the repo, plus the Copilot cloud agent | You, in every repo you open |
+| Changes the repo | Yes: a PR adding `.github/` files | No. Optional per-repo config stays untracked |
+| Right when | The team adopts the process | You may not commit to `.github/`, or you want it everywhere |
+
+### Install into a repository
 
 ```bash
 git clone https://github.com/kumouri/claude-grimoire.git
@@ -85,10 +97,145 @@ installs the rules as `.github/instructions/zethus.instructions.md` with `applyT
 combines path-specific and repository-wide instructions, so both apply. Copying by hand works too:
 the *Installs to* column above is the whole mapping.
 
+### Install for your user account (every repo, no commit)
+
+```bash
+python claude-grimoire/zethus/install.py --user --dry-run   # see the plan
+python claude-grimoire/zethus/install.py --user
+python claude-grimoire/zethus/install.py --user --uninstall # later, to remove it
+```
+
+| Kit piece | User-mode location |
+|---|---|
+| Working agreement (`copilot-instructions.md`) | `~/.copilot/instructions/zethus.instructions.md`, with `applyTo: "**"`. Your own `~/.copilot/copilot-instructions.md` is left alone. |
+| `instructions/docs.instructions.md` | `~/.copilot/instructions/zethus-docs.instructions.md` |
+| `agents/zethus.agent.md` | `~/.copilot/agents/` |
+| `skills/<name>/` | `~/.copilot/skills/<name>/` |
+| Templates, scripts | `~/.copilot/zethus/templates/`, `~/.copilot/zethus/scripts/` |
+| Example config | `~/.copilot/zethus/config.example.json`, for reference only |
+| Working agreement, for JetBrains | `global-copilot-instructions.md` in JetBrains' Copilot folder, only if you don't have one (skip with `--no-jetbrains`) |
+
+The installed Markdown is rewritten on the way. Every `.github/zethus/…` path becomes the absolute
+path of your user-level copy, and each mention of the config lists the full resolution order
+below. So the agent and skills run `python <home>/.copilot/zethus/scripts/run-local-gates.py`
+from any repo.
+
+The user install is careful about your files:
+
+- **A file it didn't write is never overwritten**, even with `--force`. If you already have a
+  `~/.copilot/skills/pr-description/`, for example, it stops, lists the clash, and writes nothing.
+- Every file it writes is recorded with its SHA-256 in `~/.copilot/zethus/install-manifest.json`.
+  Re-running it upgrades the files you haven't edited. A kit file you *have* edited is a conflict
+  unless you pass `--force`.
+- `--uninstall` removes only the manifest's files that you haven't edited (`--force` removes
+  edited ones too), then any folders that became empty. Your own files, including
+  `~/.copilot/zethus/config.json`, stay.
+- It writes no `config.json`. A user default holding example gates would override discovery in
+  every repo, so `npm run lint` would run in a Maven project.
+
+`~/.copilot` is used even when `COPILOT_HOME` is set. Only the Copilot CLI honours that variable, so
+a kit installed there would be invisible to VS Code and JetBrains.
+
+#### Which Copilot clients read the user-level files
+
+Checked against GitHub's and VS Code's documentation in September 2026. User-level files are
+local, so **the Copilot cloud agent on github.com never sees them**; it needs repo mode.
+
+| Piece | VS Code Copilot Chat | Copilot CLI | JetBrains (IntelliJ etc.) |
+|---|---|---|---|
+| Agent, `~/.copilot/agents/` | Yes ([docs][vsc-agents]) | Yes ([docs][cli-ref]) | Yes ([docs][jb-agents]) |
+| Skills, `~/.copilot/skills/` | Yes ([docs][vsc-skills]) | Yes ([docs][cli-skills]) | Documented ([docs][gh-skills]), but reported not detected on Windows ([docs][jb-skills-bug]) |
+| Instructions, `~/.copilot/instructions/*.instructions.md` | Yes ([docs][vsc-instructions]) | Yes ([docs][cli-instr]) | **No.** Only one global file is documented: `global-copilot-instructions.md` ([docs][jb-instr]) |
+| JetBrains global instructions | — | — | Windows: `%LOCALAPPDATA%\github-copilot\intellij\`. macOS: `~/.config/github-copilot/intellij/`. **Linux: not documented**, so the installer skips it and says so ([docs][jb-instr]) |
+
+Sources, with the sentence each claim rests on:
+
+- [VS Code: custom agents][vsc-agents]: Agent Host reads agents "from the selected host's folder",
+  `~/.copilot/agents` or `~/.claude/agents`.
+- [VS Code: agent skills][vsc-skills]: personal skills in `~/.copilot/skills/`, `~/.claude/skills/`
+  or `~/.agents/skills/`.
+- [VS Code: custom instructions][vsc-instructions]: "For personal, always-on instructions in Copilot
+  Agent Host sessions, use `~/.copilot/copilot-instructions.md`", and "User instructions in Agent
+  Host folders, such as `~/.copilot/instructions` … do not roam through Settings Sync."
+- [VS Code: Copilot settings reference][vsc-settings]: the defaults of `chat.agentFilesLocations`,
+  `chat.agentSkillsLocations` and `chat.instructionsFilesLocations`, each deprecated and used only
+  by the Local agent.
+- [Copilot CLI: customization reference][cli-ref]: user agents in `~/.copilot/agents/` load first.
+- [Copilot CLI: add skills][cli-skills]: personal skills in `~/.copilot/skills` or `~/.agents/skills`.
+- [Copilot CLI: add custom instructions][cli-instr]: `$HOME/.copilot/copilot-instructions.md` and
+  `$HOME/.copilot/instructions/**/*.instructions.md`; `COPILOT_HOME` replaces `$HOME/.copilot`.
+- [About agent skills][gh-skills]: lists `~/.copilot/skills` and `~/.agents/skills` for agent mode
+  in IDEs, JetBrains included.
+- [GitHub changelog, 2026-05-13][jb-agents]: in JetBrains, "define custom agents at the global level
+  using the `.agent.md` file under `~/.copilot/agents`."
+- [copilot-intellij-feedback #1517][jb-skills-bug]: open report that the JetBrains plugin doesn't
+  detect user-level `.copilot` skills on Windows.
+- [Repository instructions in your IDE, JetBrains tab][jb-instr]: a global
+  `global-copilot-instructions.md` on macOS and Windows. The page documents no path-specific
+  instruction files for JetBrains, and no Linux location.
+
+Notes:
+
+- VS Code has two kinds of session. **Agent Host** sessions (the Copilot or Claude harness) read
+  `~/.copilot/` directly ([agents][vsc-agents], [instructions][vsc-instructions]). **Local
+  agent** sessions read the folders listed in `chat.agentFilesLocations`,
+  `chat.agentSkillsLocations` and `chat.instructionsFilesLocations`. All three default to include
+  `~/.copilot/agents`, `~/.copilot/skills` and `~/.copilot/instructions` ([docs][vsc-settings]).
+  Those settings are deprecated but still work, and they are also how you would add another folder.
+- Files under `~/.copilot/` don't roam through Settings Sync ([docs][vsc-instructions]). Run the
+  installer on each machine.
+- JetBrains' user-level agent support comes from a changelog entry introducing the Copilot CLI agent
+  in JetBrains, not from the main docs. If the **zethus** agent doesn't appear in IntelliJ's agent
+  picker, that is the first thing to check.
+- On JetBrains, the working agreement reaches Copilot only through `global-copilot-instructions.md`.
+  If you already have one, the installer leaves it alone. Paste the rules from
+  `~/.copilot/instructions/zethus.instructions.md` into it yourself. The path-scoped docs rules
+  have no JetBrains user-level equivalent.
+- No current documentation lists a **repository** `.copilot/` folder for agents, skills or
+  instructions; the repo-level folders are `.github/`, `.claude/` and `.agents/`. Zethus uses a
+  repo's `.copilot/` only for its own untracked config (below).
+
+#### Config for user-level use
+
+The scripts take the first config they find. `--config` beats all of them.
+
+| # | Location | Use it for |
+|---|---|---|
+| 1 | `.github/zethus.config.json` | The team's committed answers (repo mode). |
+| 2 | `$ZETHUS_CONFIG` | A path, relative to the repo root unless absolute. Point it anywhere. |
+| 3 | `.copilot/zethus.config.json` | Per-repo answers you may not commit. Keep it untracked (below). |
+| 4 | `.claude/amphion.config.json` | Amphion's config; the shared keys mean the same thing. |
+| 5 | `~/.copilot/zethus/config.json` | Your defaults for every repo, such as `commits.aiTrailer`. Leave `gates` out unless every repo you use runs the same gates. |
+| — | *(none)* | Discovery from the repo's build files, then ask. |
+
+To keep a per-repo config out of git without touching the repo's `.gitignore` (which is itself a
+tracked change), use the clone's private exclude file:
+
+```bash
+mkdir -p .copilot
+cp ~/.copilot/zethus/config.example.json .copilot/zethus.config.json   # then edit it
+echo ".copilot/" >> .git/info/exclude
+git status --short          # .copilot/ must not appear
+```
+
+In a worktree, `.git` is a file, not a folder. `git rev-parse --git-path info/exclude` prints the
+exclude file to use.
+
+For a Maven project on Windows, discovery alone gives `./mvnw.cmd -B verify` if the repo has the
+wrapper, else `mvn -B verify`, which resolves to `mvn.cmd`. To mirror a CI that runs
+`mvn verify`, write that gate explicitly:
+
+```json
+{ "gates": { "steps": [ { "name": "maven verify", "command": "mvn -B verify" } ] } }
+```
+
 ### Configuration
 
 Every key is optional. Where a value is missing, the scripts and agent work it out from the
 repository, then ask.
+
+Where the config file lives is covered in [Config for user-level use](#config-for-user-level-use).
+The keys are the same in every location.
 
 | Key | Used by | Meaning |
 |---|---|---|
@@ -132,7 +279,7 @@ protection, not by this kit.
 the same design where they overlap, rather than duplicating it:
 
 - **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`,
-  `docSync.map`) mean the same thing. When `.github/zethus.config.json` is absent, the scripts read
+  `docSync.map`) mean the same thing. When no Zethus config is found in the repo, the scripts read
   `.claude/amphion.config.json`, so a repo using both answers each question once.
 - **Different stages.** Amphion covers what happens *after* the decisions: loading decided
   context, `flag-or-fix` when the spec runs out, `resume-interrupted-phase` when a delegate dies,
@@ -174,3 +321,10 @@ the same design where they overlap, rather than duplicating it:
 [gh-skills]: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
 [gh-skills-create]: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/create-skills
 [vsc-skills]: https://code.visualstudio.com/docs/copilot/customization/agent-skills
+[vsc-settings]: https://code.visualstudio.com/docs/copilot/reference/copilot-settings
+[cli-ref]: https://docs.github.com/en/copilot/reference/cli-plugin-reference
+[cli-skills]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills
+[cli-instr]: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions
+[jb-agents]: https://github.blog/changelog/2026-05-13-introducing-copilot-cli-agent-and-unified-sessions-view-in-github-copilot-for-jetbrains-ides/
+[jb-skills-bug]: https://github.com/microsoft/copilot-intellij-feedback/issues/1517
+[jb-instr]: https://docs.github.com/en/copilot/how-tos/configure-custom-instructions-in-your-ide/add-repository-instructions-in-your-ide?tool=jetbrains

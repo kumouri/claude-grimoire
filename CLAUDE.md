@@ -27,7 +27,8 @@ presentable.
 When adding a new artifact, drop it in the matching directory and give it a short README or
 header comment explaining what it does and how to install/use it.
 
-`zethus/` targets **GitHub Copilot**, not Claude Code — it installs into a consuming repo's `.github/`.
+`zethus/` targets **GitHub Copilot**, not Claude Code — it installs into a consuming repo's `.github/`,
+or with `install.py --user` into `~/.copilot/` for every repo.
 Keep it org-neutral and its scripts stdlib-only; maintenance rules are in
 [`zethus/README.md`](zethus/README.md#maintaining-this-kit), coverage in `tests/test_zethus.py`.
 

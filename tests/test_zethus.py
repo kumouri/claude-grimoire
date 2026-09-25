@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 KIT = REPO / "zethus"
@@ -77,10 +79,22 @@ def headings(path: Path) -> list[str]:
             if ln.startswith("## ")]
 
 
+def isolate_home(test: unittest.TestCase, home: Path) -> None:
+    """Point ``Path.home()`` at ``home`` and clear ``$ZETHUS_CONFIG``, so a developer's own
+    ``~/.copilot/zethus/config.json`` can never leak into a test."""
+    env = {"HOME": str(home), "USERPROFILE": str(home),
+           "LOCALAPPDATA": str(home / "AppData" / "Local")}
+    patcher = mock.patch.dict(os.environ, env)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    os.environ.pop("ZETHUS_CONFIG", None)       # restored by the patcher on cleanup
+
+
 class TempRepo(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self._tmp.name)
+        isolate_home(self, self.repo / "_home")
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -485,6 +499,293 @@ class KitContract(unittest.TestCase):
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
         self.assertEqual(code, 0, out)
+
+
+class FakeHome(unittest.TestCase):
+    """A throwaway home directory: ``Path.home()`` reads USERPROFILE on Windows, HOME elsewhere."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name) / "home"
+        self.home.mkdir()
+        isolate_home(self, self.home)
+        self.copilot = self.home / ".copilot"
+
+
+class UserInstaller(FakeHome):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.object(install_mod, "PLATFORM", "linux")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def install(self, *argv):
+        return run(install_mod, "--user", *argv)
+
+    def manifest(self) -> dict:
+        path = self.copilot / "zethus/install-manifest.json"
+        return json.loads(path.read_text(encoding="utf-8"))["files"]
+
+    def test_installs_every_piece_to_its_user_location(self):
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        c = self.copilot
+        self.assertEqual(frontmatter(c / "instructions/zethus.instructions.md").get("applyTo"), "**")
+        self.assertTrue((c / "instructions/zethus-docs.instructions.md").is_file())
+        self.assertTrue((c / "agents/zethus.agent.md").is_file())
+        for skill in REQUIRED_SKILLS:
+            self.assertTrue((c / "skills" / skill / "SKILL.md").is_file(), skill)
+        for tpl in ("spec-full.md", "spec-minimum.md", "adr.md", "pr.md"):
+            self.assertTrue((c / "zethus/templates" / tpl).is_file(), tpl)
+        self.assertTrue((c / "zethus/scripts/run-local-gates.py").is_file())
+        self.assertTrue((c / "zethus/config.example.json").is_file())
+        self.assertFalse((c / "zethus/config.json").exists(), "a user default would override discovery")
+        written = {Path(k) for k in self.manifest()}
+        on_disk = {p for p in c.rglob("*") if p.is_file() and p.name != "install-manifest.json"}
+        self.assertEqual({p.resolve() for p in written}, {p.resolve() for p in on_disk})
+        self.assertNotIn(str(self.home), out, "output shows ~/ paths, never the home directory")
+
+    def test_markdown_points_at_the_user_install_not_dot_github(self):
+        self.install()
+        zhome = (self.copilot / "zethus").as_posix()
+        for md in self.copilot.rglob("*.md"):
+            if "templates" in md.parts:
+                continue
+            text = md.read_text(encoding="utf-8")
+            self.assertNotIn(".github/zethus/", text, md)
+            self.assertNotIn("`.github/copilot-instructions.md`", text, md)
+        gates_skill = (self.copilot / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(f"python {zhome}/scripts/run-local-gates.py", gates_skill)
+        self.assertIn(".copilot/zethus.config.json", gates_skill)
+        for cited in re.findall(re.escape(zhome) + r"/scripts/[\w./-]+", gates_skill):
+            self.assertTrue(Path(cited).is_file(), cited)
+
+    def test_installed_scripts_find_installed_templates(self):
+        self.install()
+        saved_common, saved_path = sys.modules.pop("_common", None), list(sys.path)
+        try:
+            installed = load(self.copilot / "zethus/scripts/new-spec.py")
+            self.assertEqual(Path(sys.modules["_common"].TEMPLATES_DIR).resolve(),
+                             (self.copilot / "zethus/templates").resolve())
+        finally:
+            sys.modules["_common"] = saved_common
+            sys.path[:] = saved_path
+
+    def test_a_file_it_did_not_install_is_never_overwritten_even_with_force(self):
+        mine = self.copilot / "skills/pr-description/SKILL.md"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("my own skill", encoding="utf-8")
+        code, out = self.install("--force")
+        self.assertEqual(code, 1, out)
+        self.assertIn("~/.copilot/skills/pr-description/SKILL.md", out)
+        self.assertEqual(mine.read_text(encoding="utf-8"), "my own skill")
+        self.assertFalse((self.copilot / "agents").exists(), "nothing written on a conflict")
+
+    def test_edited_kit_file_needs_force_and_reinstall_is_idempotent(self):
+        self.install()
+        agent = self.copilot / "agents/zethus.agent.md"
+        original = agent.read_bytes()
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        self.assertIn("same", out)
+        agent.write_text("local edit", encoding="utf-8")
+        code, out = self.install()
+        self.assertEqual(code, 1, out)
+        self.assertEqual(agent.read_text(encoding="utf-8"), "local edit")
+        code, out = self.install("--force")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(agent.read_bytes(), original)
+
+    def test_unedited_old_version_is_updated(self):
+        self.install()
+        agent = self.copilot / "agents/zethus.agent.md"
+        agent.write_text("an older kit release", encoding="utf-8")
+        manifest = json.loads((self.copilot / "zethus/install-manifest.json").read_text(encoding="utf-8"))
+        manifest["files"][agent.as_posix()] = install_mod.sha256(agent.read_bytes())
+        (self.copilot / "zethus/install-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        self.assertIn("update", out)
+        self.assertNotEqual(agent.read_text(encoding="utf-8"), "an older kit release")
+
+    def test_dry_run_writes_nothing(self):
+        code, out = self.install("--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("dry run", out)
+        self.assertFalse(self.copilot.exists())
+
+    def test_uninstall_removes_only_what_it_installed(self):
+        own_agent = self.copilot / "agents/mine.agent.md"
+        own_agent.parent.mkdir(parents=True)
+        own_agent.write_text("mine", encoding="utf-8")
+        self.install()
+        extra = self.copilot / "skills/test-plan/notes.md"
+        extra.write_text("my notes", encoding="utf-8")
+        edited = self.copilot / "skills/write-adr/SKILL.md"
+        edited.write_text("edited", encoding="utf-8")
+        user_config = self.copilot / "zethus/config.json"
+        user_config.write_text("{}", encoding="utf-8")
+
+        code, out = self.install("--uninstall", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertTrue((self.copilot / "agents/zethus.agent.md").exists())
+
+        code, out = self.install("--uninstall")
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.copilot / "agents/zethus.agent.md").exists())
+        self.assertFalse((self.copilot / "skills/implement-phase").exists(), "empty skill dir pruned")
+        self.assertFalse((self.copilot / "zethus/scripts").exists())
+        self.assertFalse((self.copilot / "zethus/install-manifest.json").exists())
+        self.assertEqual(own_agent.read_text(encoding="utf-8"), "mine")
+        self.assertEqual(extra.read_text(encoding="utf-8"), "my notes")
+        self.assertFalse((self.copilot / "skills/test-plan/SKILL.md").exists())
+        self.assertEqual(edited.read_text(encoding="utf-8"), "edited")
+        self.assertEqual(user_config.read_text(encoding="utf-8"), "{}")
+
+        code, out = self.install("--uninstall")
+        self.assertEqual(code, 1, out)
+
+    def test_uninstall_needs_user_mode(self):
+        with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
+            install_mod.main(["--target", str(self.home), "--uninstall"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_jetbrains_global_instructions_on_windows(self):
+        with mock.patch.object(install_mod, "PLATFORM", "win32"):
+            jb = self.home / "AppData/Local/github-copilot/intellij/global-copilot-instructions.md"
+            code, out = self.install("--no-jetbrains")
+            self.assertEqual(code, 0, out)
+            self.assertFalse(jb.exists())
+            code, out = self.install()
+            self.assertEqual(code, 0, out)
+            self.assertTrue(jb.is_file())
+            self.assertNotIn(".github/zethus/", jb.read_text(encoding="utf-8"))
+            self.assertEqual(self.install("--uninstall")[0], 0)
+            self.assertFalse(jb.exists())
+            jb.parent.mkdir(parents=True, exist_ok=True)
+            jb.write_text("my global rules", encoding="utf-8")
+            code, out = self.install()
+            self.assertEqual(code, 0, out)
+            self.assertIn("keep", out)
+            self.assertEqual(jb.read_text(encoding="utf-8"), "my global rules")
+
+    def test_no_jetbrains_location_on_linux_is_said_plainly(self):
+        code, out = self.install()
+        self.assertEqual(code, 0, out)
+        self.assertIn("no location on Linux", out)
+
+
+class ConfigResolution(FakeHome):
+    def setUp(self):
+        super().setUp()
+        self.repo = Path(self._tmp.name) / "repo"
+        (self.repo / ".git").mkdir(parents=True)
+
+    def put(self, where: Path, name: str) -> None:
+        where.parent.mkdir(parents=True, exist_ok=True)
+        where.write_text(json.dumps({"gates": {"steps": [{"name": name, "command": py("pass")}]}}),
+                         encoding="utf-8")
+
+    def winner(self) -> str:
+        config, _ = sys.modules["_common"].load_config(self.repo)
+        return config["gates"]["steps"][0]["name"] if config else "discovery"
+
+    def test_resolution_order(self):
+        self.assertEqual(self.winner(), "discovery")
+        self.put(self.copilot / "zethus/config.json", "user")
+        self.assertEqual(self.winner(), "user")
+        self.put(self.repo / ".claude/amphion.config.json", "amphion")
+        self.assertEqual(self.winner(), "amphion")
+        self.put(self.repo / ".copilot/zethus.config.json", "untracked")
+        self.assertEqual(self.winner(), "untracked")
+        self.put(self.repo / "elsewhere.json", "env")
+        with mock.patch.dict(os.environ, {"ZETHUS_CONFIG": "elsewhere.json"}):
+            self.assertEqual(self.winner(), "env")
+            self.put(self.repo / ".github/zethus.config.json", "committed")
+            self.assertEqual(self.winner(), "committed")
+
+    def test_user_default_drives_gates_and_is_shown_without_the_home_path(self):
+        self.put(self.copilot / "zethus/config.json", "user")
+        code, out = run(gates_mod, "--repo", str(self.repo))
+        self.assertEqual(code, 0, out)
+        self.assertIn("Gates from: ~/.copilot/zethus/config.json", out)
+        self.assertIn("| user | PASS |", out)
+
+
+class WindowsCommandResolution(unittest.TestCase):
+    """The Windows rules are exercised on every OS through ``resolve(windows=True)``."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.bin = self.root / "maven" / "bin"
+        self.bin.mkdir(parents=True)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        patcher = mock.patch.dict(os.environ, {"PATHEXT": ".COM;.EXE;.BAT;.CMD"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def touch(self, path: Path) -> Path:
+        path.write_text("", encoding="utf-8")
+        return path
+
+    def resolve(self, argv0: str):
+        return gates_mod.resolve(argv0, self.repo, windows=True, path=str(self.bin))
+
+    def test_bare_command_finds_the_cmd_wrapper_not_the_posix_script(self):
+        self.touch(self.bin / "mvn")               # Maven's bin/ ships both
+        cmd = self.touch(self.bin / "mvn.cmd")
+        self.assertEqual(Path(self.resolve("mvn")), cmd)
+
+    def test_bat_is_found_and_pathext_order_wins(self):
+        bat = self.touch(self.bin / "tool.bat")
+        self.assertEqual(Path(self.resolve("tool")), bat)
+        exe = self.touch(self.bin / "tool.exe")
+        self.assertEqual(Path(self.resolve("tool")), exe)
+
+    def test_explicit_extension_is_taken_as_given(self):
+        cmd = self.touch(self.bin / "mvn.cmd")
+        self.assertEqual(Path(self.resolve("mvn.cmd")), cmd)
+
+    def test_extensionless_only_is_not_runnable(self):
+        self.touch(self.bin / "mvn")
+        self.assertIsNone(self.resolve("mvn"))
+
+    def test_repo_relative_wrapper_resolves_through_pathext(self):
+        self.touch(self.repo / "mvnw")
+        cmd = self.touch(self.repo / "mvnw.cmd")
+        self.assertEqual(Path(self.resolve("./mvnw")), cmd)
+        self.assertEqual(Path(self.resolve("./mvnw.cmd")), cmd)
+
+    def test_posix_rules_are_unchanged(self):
+        self.touch(self.repo / "mvnw")
+        self.assertEqual(Path(gates_mod.resolve("./mvnw", self.repo, windows=False)), self.repo / "mvnw")
+
+    def test_maven_discovery_prefers_the_wrapper(self):
+        self.touch(self.repo / "pom.xml")
+        gates, evidence = gates_mod.discover(self.repo)
+        self.assertEqual(gates[0].argv, ["mvn", "-B", "verify"])
+        wrapper = "mvnw.cmd" if os.name == "nt" else "mvnw"
+        self.touch(self.repo / wrapper)
+        gates, evidence = gates_mod.discover(self.repo)
+        self.assertEqual(gates[0].argv, ["./" + wrapper, "-B", "verify"])
+        self.assertIn("pom.xml + " + wrapper, evidence)
+        self.assertEqual(gates[0].display, f"./{wrapper} -B verify", "no host path in the PR table")
+
+    @unittest.skipUnless(os.name == "nt", "runs a real .cmd file")
+    def test_configured_bare_command_runs_a_cmd_wrapper(self):
+        (self.bin / "zethusgate.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+        (self.repo / ".github").mkdir()
+        (self.repo / ".github/zethus.config.json").write_text(
+            json.dumps({"gates": {"steps": [{"name": "mvn", "command": "zethusgate verify"}]}}),
+            encoding="utf-8")
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"]}):
+            code, out = run(gates_mod, "--repo", str(self.repo))
+        self.assertEqual(code, 0, out)
+        self.assertIn("| mvn | PASS |", out)
 
 
 if __name__ == "__main__":

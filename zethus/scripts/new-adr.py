@@ -14,7 +14,7 @@ renumbers anything at merge time.
 written down somewhere tracked. The index is the one place a reader can see every decision, and
 the row is created in the same step as the record so the two never disagree.
 
-Config (optional, ``.github/zethus.config.json``): ``adr.dir`` (default ``docs/adr``),
+Config (optional; the first Zethus config found, see ``_common.py``): ``adr.dir`` (default ``docs/adr``),
 ``adr.template`` (default this kit's ``templates/adr.md``).
 
 Exit codes: 0 created · 2 usage error (bad date, empty title, file already exists).
