@@ -47,8 +47,59 @@ stones set themselves. Pipeline + diagram: [amphion/docs/pipeline.md](amphion/do
 | [`commands/`](commands/) | Standalone custom slash commands. |
 | [`agents/`](agents/) | Custom subagent definitions. |
 | [`docs/`](docs/) | Cross-cutting architecture docs and diagrams (e.g. `docs/grimoire/`). |
+| [`scripts/`](scripts/) | Repo-maintenance scripts, including the CI identifier guard. |
+| [`tests/`](tests/) | Python `unittest` suite covering the engines. |
 
 Each directory has its own README describing conventions and what belongs there.
+
+## 🧪 CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs two jobs on every PR into
+`develop` or `main`:
+
+- **Validate artifacts** — markdownlint, JSON/YAML well-formedness, shellcheck.
+- **Python tests** — the identifier guard (below), the `unittest` suite, and an
+  MCP-server smoke import.
+
+Run the suite locally with:
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+### 🔒 The identifier guard
+
+**This repository is public — every byte committed here is published.**
+[`scripts/check_identifiers.py`](scripts/check_identifiers.py) is a blocking CI step that
+scans every tracked text file for machine-specific identifiers: Windows user-profile paths
+(`C:\Users\<name>\…`), other drive-absolute paths, POSIX home directories (`/home/<name>/`,
+`/Users/<name>/`), WSL drive mounts, this project's GitHub URL under the wrong org, and
+email addresses outside a small justified allowlist.
+
+Run it and its tests locally:
+
+```bash
+python scripts/check_identifiers.py
+python -m unittest discover -s scripts -p "test_check_identifiers.py" -t scripts
+```
+
+The guard matches by **shape, not by a list of secret strings** — deliberately. A denylist of
+the private terms to forbid would have to *contain* those terms, and committing it to a public
+repo would publish exactly what it was written to protect. Documented placeholders
+(`<user>`, `alice`, `%USERNAME%`, CI's `/home/runner`, …) are accepted so docs can still show
+the shape of a path. Ceryce's name, her `@kumouri` handle and her contact address in package
+author metadata are **deliberate attribution** and stay: the rule is *scrub the machine, keep
+the author*.
+
+> [!IMPORTANT]
+> **What this guard cannot see.** It has no knowledge of any private denylist — the real
+> names of clients, businesses and workspace trees live only in a private scrub workspace
+> outside this repo. A green run means "no identifier of a *known shape* was found", **not**
+> "this repo is free of private information". It also scans only the current working tree, so
+> it can never notice something already committed and later deleted. The pre-release gate
+> remains a private `pii_sweep.py --repo … --history` run against that denylist; this check is
+> a cheap always-on **subset** of it, not a replacement. Do not read a green tick here as
+> clearance to publish.
 
 ## 🌿 Git Flow
 
