@@ -1,28 +1,50 @@
 """Shared helpers for the Zethus scripts: repo root, config, slugs, templates.
 
-Stdlib only. The scripts are installed as a set (into ``.github/zethus/scripts/`` in the consuming
-repo), so each one imports this module from its own directory.
+Stdlib only. The scripts are installed as a set — into ``.github/zethus/scripts/`` in a consuming
+repo, or ``~/.copilot/zethus/scripts/`` for a user-level install — so each one imports this module
+from its own directory.
 
-Config resolution mirrors Amphion's: the project's own answer first, then repository evidence,
-then ask. The config is ``.github/zethus.config.json``; when that is absent, an existing
-``.claude/amphion.config.json`` is read instead, because the two share key names wherever they
-overlap (``gates``, ``branchModel``, ``docSync``) — one project, one set of answers.
+Config resolution mirrors Amphion's: the project's own answer first, then the user's defaults,
+then repository evidence, then ask. The first file found wins (``--config`` beats all of them):
+
+1. ``.github/zethus.config.json`` — committed, shared with the team.
+2. ``$ZETHUS_CONFIG`` — a path (relative paths are taken from the repo root).
+3. ``.copilot/zethus.config.json`` — per-repo but untracked: for repos whose ``.github/`` you may
+   not change. Keep it out of git with ``.git/info/exclude``, not ``.gitignore``.
+4. ``.claude/amphion.config.json`` — Amphion's config; the key names match wherever they overlap
+   (``gates``, ``branchModel``, ``docSync``) — one project, one set of answers.
+5. ``~/.copilot/zethus/config.json`` — the user's defaults for every repo.
 """
 from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
 
-KIT_DIR = Path(__file__).resolve().parent.parent          # .../zethus (or .github/zethus)
+KIT_DIR = Path(__file__).resolve().parent.parent   # .../zethus, .github/zethus or ~/.copilot/zethus
 TEMPLATES_DIR = KIT_DIR / "templates"
 
-CONFIG_CANDIDATES = (
-    Path(".github") / "zethus.config.json",
-    Path(".claude") / "amphion.config.json",
-)
+CONFIG_ENV = "ZETHUS_CONFIG"
+
+
+def user_home() -> Path:
+    """The user-level Zethus home: ``~/.copilot/zethus``. It is where Copilot's user files live."""
+    return Path.home() / ".copilot" / "zethus"
+
+
+def config_candidates(repo: Path) -> list[Path]:
+    """Every place a config may live, in resolution order (see the module docstring)."""
+    paths = [repo / ".github" / "zethus.config.json"]
+    env = os.environ.get(CONFIG_ENV, "").strip()
+    if env:
+        paths.append(Path(env) if Path(env).is_absolute() else repo / env)
+    paths += [repo / ".copilot" / "zethus.config.json",
+              repo / ".claude" / "amphion.config.json",
+              user_home() / "config.json"]
+    return paths
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -47,7 +69,7 @@ def load_config(repo: Path, explicit: str | None = None) -> tuple[dict, Path | N
         if not paths[0].is_file():
             raise UsageError(f"config not found: {explicit}")
     else:
-        paths = [repo / c for c in CONFIG_CANDIDATES]
+        paths = config_candidates(repo)
     for path in paths:
         if path.is_file():
             try:
@@ -110,9 +132,14 @@ def read_template(name: str, override: str | None, repo: Path) -> str:
 
 def rel(path: Path, repo: Path) -> str:
     """Repo-relative POSIX path for display; never print an absolute host path we can avoid."""
+    resolved = Path(path).resolve()
     try:
-        return Path(path).resolve().relative_to(repo.resolve()).as_posix()
+        return resolved.relative_to(repo.resolve()).as_posix()
     except ValueError:
+        pass
+    try:
+        return "~/" + resolved.relative_to(Path.home().resolve()).as_posix()
+    except (ValueError, RuntimeError):
         return Path(path).as_posix()
 
 

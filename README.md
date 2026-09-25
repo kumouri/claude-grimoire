@@ -56,7 +56,8 @@ Each directory has its own README describing conventions and what belongs there.
 ## 🪨 For GitHub Copilot — Zethus
 
 **[Zethus](zethus/)** — my development process, packaged for GitHub Copilot and installable into
-any repository's `.github/`. One custom agent walks every change through research → spec →
+any repository's `.github/`, or once per user into `~/.copilot/` so it follows you into every repo
+without touching any of them. One custom agent walks every change through research → spec →
 sign-off → phased implementation (Phase 0 changes no behaviour) → tests → local gates → a PR with
 evidence, and refuses to skip a stage; ten standalone skills, spec/ADR/PR templates, and stdlib
 scripts (`run-local-gates`, `new-adr`, `new-spec`, `docs-pointer-check`) carry the procedures.

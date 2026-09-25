@@ -12,7 +12,7 @@ behind the ask, or anything a reviewer will want to argue with. When in doubt, s
 the minimum template's headings are a strict subset of the full one's, so promoting it later is
 additive, never a rewrite.
 
-Config (optional, ``.github/zethus.config.json``): ``spec.dir`` (default ``docs/specs``),
+Config (optional; the first Zethus config found, see ``_common.py``): ``spec.dir`` (default ``docs/specs``),
 ``spec.templates.full`` / ``spec.templates.minimum`` (default this kit's templates).
 
 Exit codes: 0 created · 2 usage error (bad kind or date, empty title, file already exists).

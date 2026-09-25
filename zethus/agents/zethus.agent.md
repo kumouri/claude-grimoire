@@ -71,7 +71,7 @@ switch to another agent to proceed without it. Don't argue further, and don't qu
 
 ## Config you read
 
-`.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has):
-`branchModel.base`, `gates.*`, `spec.dir`, `adr.dir`, `docSync.map`, `commits.aiTrailer`. If a key
+Read `.github/zethus.config.json` (or `.claude/amphion.config.json` if that is what the repo has)
+for `branchModel.base`, `gates.*`, `spec.dir`, `adr.dir`, `docSync.map`, `commits.aiTrailer`. If a key
 you need is missing, work it out from the repository, confirm it with the person in one question,
 and offer to write it into the config.
