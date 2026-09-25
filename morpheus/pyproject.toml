@@ -27,8 +27,8 @@ mcp = ["mcp>=1.2,<2"]
 morpheus = "morpheus.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ceryce/claude-grimoire"
-Source = "https://github.com/ceryce/claude-grimoire/tree/main/morpheus"
+Homepage = "https://github.com/kumouri/claude-grimoire"
+Source = "https://github.com/kumouri/claude-grimoire/tree/main/morpheus"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

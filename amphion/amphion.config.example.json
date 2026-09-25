@@ -1,0 +1,96 @@
+{
+  "_readme": "Copy to .claude/amphion.config.json in YOUR project and edit. Every key is optional: a skill that finds no config falls back to discovery and asks before guessing. Delete the keys you don't use.",
+
+  "vocabulary": {
+    "spec": "spec",
+    "phase": "phase"
+  },
+
+  "context": {
+    "root": ".",
+    "core": [
+      {
+        "role": "plan",
+        "path": ".claude/plan.md",
+        "note": "Phased execution order, file-modification map, pointers to per-unit specs."
+      },
+      {
+        "role": "decisions",
+        "path": ".claude/decisions.md",
+        "note": "Resolved decisions. Read BEFORE the specs — knowing what was settled prevents rework."
+      },
+      {
+        "role": "voice",
+        "path": ".claude/voice-guide.md",
+        "note": "Optional. Tone/register/naming rules for user-facing copy. Omit for projects with no copy."
+      },
+      {
+        "role": "conventions",
+        "path": "CLAUDE.md",
+        "note": "Repo-level conventions and the 'when you hit something unexpected' table."
+      }
+    ],
+    "phase": {
+      "briefing": ".claude/briefing-phase-{phase}.md",
+      "specs": [".claude/spec-*.md"],
+      "supporting": []
+    }
+  },
+
+  "ledger": {
+    "path": "docs/PHASE-PROGRESS.md"
+  },
+
+  "gates": {
+    "build": "npm run build",
+    "test": "npm test",
+    "mandatedChecks": [
+      {
+        "name": "no-todo-markers",
+        "command": "git grep -n 'TODO: investigate' -- src/",
+        "expect": "0 hits"
+      }
+    ]
+  },
+
+  "branchModel": {
+    "base": "",
+    "gitFlowOwners": []
+  },
+
+  "frictionLog": {
+    "sink": "markdown",
+    "markdown": {
+      "path": "docs/friction-log.md"
+    },
+    "notion": {
+      "pageId": ""
+    },
+    "githubIssues": {
+      "repo": "",
+      "labels": ["friction"]
+    },
+    "categories": [
+      { "name": "Environment & Tooling", "includes": "Local setup, toolchain, editor, shell, machine-specific breakage" },
+      { "name": "Build & CI", "includes": "Build system, pipelines, flaky or slow gates, release plumbing" },
+      { "name": "Code & Architecture", "includes": "Seams that fight the change, missing abstractions, load-bearing surprises" },
+      { "name": "Testing & Verification", "includes": "Hard-to-write tests, missing fixtures, unverifiable behaviour" },
+      { "name": "Docs & Knowledge", "includes": "Missing, stale, or unfindable information" },
+      { "name": "Process & Coordination", "includes": "Handoffs, review latency, orchestration and agent-delegation failures" },
+      { "name": "External Services & Dependencies", "includes": "Third-party APIs, vendor limits, upstream bugs" }
+    ]
+  },
+
+  "docSync": {
+    "map": [
+      {
+        "doc": "CLAUDE.md",
+        "describes": ["src/**", "package.json", ".github/workflows/**"]
+      },
+      {
+        "doc": "src/api/README.md",
+        "describes": ["src/api/**"]
+      }
+    ]
+  }
+}
