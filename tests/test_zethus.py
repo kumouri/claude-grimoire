@@ -654,13 +654,23 @@ class UserInstaller(FakeHome):
             install_mod.main(["--target", str(self.home), "--uninstall"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_jetbrains_global_instructions_on_windows(self):
+    def test_jetbrains_gets_the_shared_user_folders_by_default(self):
+        """Current JetBrains builds read ~/.copilot/instructions; the legacy file is opt-in."""
+        for platform in ("win32", "darwin", "linux"):
+            with self.subTest(platform=platform), mock.patch.object(install_mod, "PLATFORM", platform):
+                code, out = self.install("--dry-run")
+                self.assertEqual(code, 0, out)
+                self.assertIn("~/.copilot/instructions/zethus.instructions.md", out)
+                self.assertNotIn("global-copilot-instructions.md", out)
+        with mock.patch.object(install_mod, "PLATFORM", "win32"):
+            self.assertEqual(self.install()[0], 0)
+            self.assertFalse((self.home / "AppData/Local/github-copilot").exists())
+            self.assertTrue((self.copilot / "instructions/zethus.instructions.md").is_file())
+
+    def test_jetbrains_legacy_global_instructions_on_windows(self):
         with mock.patch.object(install_mod, "PLATFORM", "win32"):
             jb = self.home / "AppData/Local/github-copilot/intellij/global-copilot-instructions.md"
-            code, out = self.install("--no-jetbrains")
-            self.assertEqual(code, 0, out)
-            self.assertFalse(jb.exists())
-            code, out = self.install()
+            code, out = self.install("--jetbrains-legacy")
             self.assertEqual(code, 0, out)
             self.assertTrue(jb.is_file())
             self.assertNotIn(".github/zethus/", jb.read_text(encoding="utf-8"))
@@ -668,15 +678,23 @@ class UserInstaller(FakeHome):
             self.assertFalse(jb.exists())
             jb.parent.mkdir(parents=True, exist_ok=True)
             jb.write_text("my global rules", encoding="utf-8")
-            code, out = self.install()
+            code, out = self.install("--jetbrains-legacy")
             self.assertEqual(code, 0, out)
             self.assertIn("keep", out)
             self.assertEqual(jb.read_text(encoding="utf-8"), "my global rules")
 
-    def test_no_jetbrains_location_on_linux_is_said_plainly(self):
+    def test_jetbrains_legacy_on_linux_is_said_plainly(self):
         code, out = self.install()
         self.assertEqual(code, 0, out)
+        self.assertNotIn("JetBrains", out)
+        code, out = self.install("--jetbrains-legacy")
+        self.assertEqual(code, 0, out)
         self.assertIn("no location on Linux", out)
+
+    def test_jetbrains_legacy_needs_user_mode(self):
+        with self.assertRaises(SystemExit) as ctx, redirect_stderr(io.StringIO()):
+            install_mod.main(["--target", str(self.home), "--jetbrains-legacy"])
+        self.assertEqual(ctx.exception.code, 2)
 
 
 class ConfigResolution(FakeHome):

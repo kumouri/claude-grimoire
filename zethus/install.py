@@ -6,6 +6,7 @@
     python zethus/install.py --user                                # user mode: every repo, no commit
     python zethus/install.py --user --dry-run
     python zethus/install.py --user --uninstall                    # remove what --user installed
+    python zethus/install.py --user --jetbrains-legacy             # + JetBrains' older global file
 
 **Repo mode** (``--target``) — what goes where, all under the target's ``.github/``:
 
@@ -37,7 +38,11 @@ table for which clients read which):
     templates/*.md                 -> ~/.copilot/zethus/templates/
     scripts/*.py                   -> ~/.copilot/zethus/scripts/
     zethus.config.example.json     -> ~/.copilot/zethus/config.example.json (reference only)
-    copilot-instructions.md        -> JetBrains global-copilot-instructions.md (only if absent)
+
+Current JetBrains builds read ``~/.copilot/instructions``, ``~/.copilot/agents`` and
+``~/.copilot/skills`` like the other clients, so user mode writes nothing JetBrains-specific.
+Only ``--jetbrains-legacy`` also writes the working agreement to JetBrains' single
+``global-copilot-instructions.md`` (Windows/macOS, only if absent), for older plugin builds.
 
 The Markdown is rewritten on the way: every ``.github/zethus/...`` path becomes the absolute path
 of the user-level copy, and every mention of the repo config names the full resolution order.
@@ -155,8 +160,8 @@ def copilot_home() -> Path:
 
 
 def jetbrains_dir() -> Path | None:
-    """Where JetBrains Copilot reads ``global-copilot-instructions.md``; ``None`` where GitHub
-    documents no location (Linux)."""
+    """Where older JetBrains Copilot builds read ``global-copilot-instructions.md`` (used only by
+    ``--jetbrains-legacy``); ``None`` where GitHub documents no location (Linux)."""
     if PLATFORM.startswith("win"):
         local = os.environ.get("LOCALAPPDATA")
         return (Path(local) if local else Path.home() / "AppData" / "Local") / "github-copilot" / "intellij"
@@ -263,10 +268,10 @@ def current_hash(path: Path) -> str | None:
     return sha256(path.read_bytes()) if path.is_file() else None
 
 
-def user_plan(jetbrains: bool) -> list[Step]:
+def user_plan(jetbrains_legacy: bool) -> list[Step]:
     manifest = read_manifest()
     payloads = user_payloads()
-    if jetbrains and (jb := jetbrains_dir()) is not None:
+    if jetbrains_legacy and (jb := jetbrains_dir()) is not None:
         payloads.append((jb / "global-copilot-instructions.md",
                          rewrite((KIT / "copilot-instructions.md").read_text(encoding="utf-8")).encode("utf-8"),
                          True))
@@ -316,7 +321,7 @@ def prune_roots() -> set[Path]:
 
 
 def install_user(args) -> int:
-    steps = user_plan(jetbrains=not args.no_jetbrains)
+    steps = user_plan(jetbrains_legacy=args.jetbrains_legacy)
     foreign = [s for s in steps if s.action == "foreign"]
     edited = [s for s in steps if s.action == "conflict"]
     if foreign or (edited and not args.force):
@@ -345,8 +350,9 @@ def install_user(args) -> int:
             manifest[s.dest.as_posix()] = sha256(s.data)
         elif s.action == "same":
             manifest[s.dest.as_posix()] = sha256(s.data)
-    if PLATFORM.startswith("linux") and not args.no_jetbrains:
-        print("skip      JetBrains global instructions (GitHub documents no location on Linux)")
+    if args.jetbrains_legacy and jetbrains_dir() is None:
+        print("skip      JetBrains global-copilot-instructions.md (GitHub documents no location "
+              "on Linux)")
     if args.dry_run:
         print("dry run: nothing written")
         return 0
@@ -404,11 +410,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the plan; write nothing")
     p.add_argument("--uninstall", action="store_true",
                    help="with --user: remove the files the user install wrote")
-    p.add_argument("--no-jetbrains", action="store_true",
-                   help="with --user: don't write JetBrains' global-copilot-instructions.md")
+    p.add_argument("--jetbrains-legacy", action="store_true",
+                   help="with --user: also write JetBrains' global-copilot-instructions.md, for "
+                        "older plugin builds that don't read ~/.copilot/instructions")
     args = p.parse_args(argv)
-    if not args.user and (args.uninstall or args.no_jetbrains):
-        p.error("--uninstall and --no-jetbrains need --user (a repo install is removed with git)")
+    if not args.user and (args.uninstall or args.jetbrains_legacy):
+        p.error("--uninstall and --jetbrains-legacy need --user (a repo install is removed with git)")
     if args.user:
         return uninstall_user(args) if args.uninstall else install_user(args)
     return install_repo(args)

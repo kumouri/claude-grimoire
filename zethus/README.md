@@ -105,6 +105,9 @@ python claude-grimoire/zethus/install.py --user
 python claude-grimoire/zethus/install.py --user --uninstall # later, to remove it
 ```
 
+Add `--jetbrains-legacy` only for an older JetBrains Copilot plugin that doesn't read
+`~/.copilot/instructions` (see the support table below).
+
 | Kit piece | User-mode location |
 |---|---|
 | Working agreement (`copilot-instructions.md`) | `~/.copilot/instructions/zethus.instructions.md`, with `applyTo: "**"`. Your own `~/.copilot/copilot-instructions.md` is left alone. |
@@ -113,7 +116,7 @@ python claude-grimoire/zethus/install.py --user --uninstall # later, to remove i
 | `skills/<name>/` | `~/.copilot/skills/<name>/` |
 | Templates, scripts | `~/.copilot/zethus/templates/`, `~/.copilot/zethus/scripts/` |
 | Example config | `~/.copilot/zethus/config.example.json`, for reference only |
-| Working agreement, for JetBrains | `global-copilot-instructions.md` in JetBrains' Copilot folder, only if you don't have one (skip with `--no-jetbrains`) |
+| Working agreement, for older JetBrains builds | Only with `--jetbrains-legacy`: `global-copilot-instructions.md` in JetBrains' Copilot folder, and only if you don't have one |
 
 The installed Markdown is rewritten on the way. Every `.github/zethus/…` path becomes the absolute
 path of your user-level copy, and each mention of the config lists the full resolution order
@@ -138,15 +141,43 @@ a kit installed there would be invisible to VS Code and JetBrains.
 
 #### Which Copilot clients read the user-level files
 
-Checked against GitHub's and VS Code's documentation in September 2026. User-level files are
-local, so **the Copilot cloud agent on github.com never sees them**; it needs repo mode.
+VS Code and the CLI were checked against GitHub's and VS Code's documentation in September 2026.
+The JetBrains column rests on something stronger than the docs: a user's own IntelliJ settings
+screen (below). User-level files are local, so **the Copilot cloud agent on github.com never sees
+them**; it needs repo mode.
 
 | Piece | VS Code Copilot Chat | Copilot CLI | JetBrains (IntelliJ etc.) |
 |---|---|---|---|
-| Agent, `~/.copilot/agents/` | Yes ([docs][vsc-agents]) | Yes ([docs][cli-ref]) | Yes ([docs][jb-agents]) |
-| Skills, `~/.copilot/skills/` | Yes ([docs][vsc-skills]) | Yes ([docs][cli-skills]) | Documented ([docs][gh-skills]), but reported not detected on Windows ([docs][jb-skills-bug]) |
-| Instructions, `~/.copilot/instructions/*.instructions.md` | Yes ([docs][vsc-instructions]) | Yes ([docs][cli-instr]) | **No.** Only one global file is documented: `global-copilot-instructions.md` ([docs][jb-instr]) |
-| JetBrains global instructions | — | — | Windows: `%LOCALAPPDATA%\github-copilot\intellij\`. macOS: `~/.config/github-copilot/intellij/`. **Linux: not documented**, so the installer skips it and says so ([docs][jb-instr]) |
+| Agent, `~/.copilot/agents/` | Yes ([docs][vsc-agents]) | Yes ([docs][cli-ref]) | Yes: a default location in the settings screen ([changelog][jb-agents] agrees) |
+| Skills, `~/.copilot/skills/` | Yes ([docs][vsc-skills]) | Yes ([docs][cli-skills]) | Yes: a default location in the settings screen ([docs][gh-skills] agree). Older builds: see bug #1517 below |
+| Instructions, `~/.copilot/instructions/*.instructions.md` | Yes ([docs][vsc-instructions]) | Yes ([docs][cli-instr]) | Yes: a default location in the settings screen. The docs still describe only `global-copilot-instructions.md` ([docs][jb-instr]) |
+| JetBrains `global-copilot-instructions.md` (`--jetbrains-legacy` only) | — | — | Windows: `%LOCALAPPDATA%\github-copilot\intellij\`. macOS: `~/.config/github-copilot/intellij/`. **Linux: not documented**, so the installer skips it and says so ([docs][jb-instr]) |
+
+**The JetBrains evidence.** In September 2026, the IntelliJ Copilot settings page *Tools → GitHub
+Copilot → Customizations* listed these default locations, all enabled. The plugin version wasn't
+visible, so it is unknown which build introduced them.
+
+| Setting | Default locations |
+|---|---|
+| Instruction File Locations (`*.instructions.md`) | `.github/instructions`, `~/.copilot/instructions` |
+| Agent File Locations (`*.agent.md`) | `.claude/agents`, `.github/agents`, `~/.copilot/agents` |
+| Skill File Locations (folders of `SKILL.md`) | `.agents/skills`, `.claude/skills`, `.github/skills`, `~/.agents/skills`, `~/.claude/skills`, `~/.copilot/skills` |
+| Prompt File Locations (`*.prompt.md`) | `.github/prompts`, `~/.copilot/prompts` |
+| Hook File Locations (`*.json`) | `.github/hooks`, `~/.copilot/hooks` |
+
+The same page has toggles for organization instructions, `AGENTS.md` and `CLAUDE.md` (nested
+variants experimental), plus a *Plugin Marketplaces* list.
+
+**Older JetBrains builds.** Before this settings page, the docs described one global instructions
+file, `global-copilot-instructions.md`, and no `~/.copilot/instructions` ([docs][jb-instr]). An open
+report says user-level `.copilot` skills weren't detected on Windows ([#1517][jb-skills-bug]). If
+your plugin has no *Customizations* page, or the kit doesn't show up:
+
+- update the plugin; or
+- re-run with `--jetbrains-legacy` to also write `global-copilot-instructions.md`.
+
+Don't use the flag on a current build. Copilot would then read the working agreement twice, once
+from each file.
 
 Sources, with the sentence each claim rests on:
 
@@ -169,10 +200,11 @@ Sources, with the sentence each claim rests on:
 - [GitHub changelog, 2026-05-13][jb-agents]: in JetBrains, "define custom agents at the global level
   using the `.agent.md` file under `~/.copilot/agents`."
 - [copilot-intellij-feedback #1517][jb-skills-bug]: open report that the JetBrains plugin doesn't
-  detect user-level `.copilot` skills on Windows.
+  detect user-level `.copilot` skills on Windows. It predates the settings screen above.
 - [Repository instructions in your IDE, JetBrains tab][jb-instr]: a global
   `global-copilot-instructions.md` on macOS and Windows. The page documents no path-specific
-  instruction files for JetBrains, and no Linux location.
+  instruction files for JetBrains, and no Linux location. The settings screen above contradicts
+  the first point for current builds.
 
 Notes:
 
@@ -184,13 +216,11 @@ Notes:
   Those settings are deprecated but still work, and they are also how you would add another folder.
 - Files under `~/.copilot/` don't roam through Settings Sync ([docs][vsc-instructions]). Run the
   installer on each machine.
-- JetBrains' user-level agent support comes from a changelog entry introducing the Copilot CLI agent
-  in JetBrains, not from the main docs. If the **zethus** agent doesn't appear in IntelliJ's agent
-  picker, that is the first thing to check.
-- On JetBrains, the working agreement reaches Copilot only through `global-copilot-instructions.md`.
-  If you already have one, the installer leaves it alone. Paste the rules from
-  `~/.copilot/instructions/zethus.instructions.md` into it yourself. The path-scoped docs rules
-  have no JetBrains user-level equivalent.
+- In JetBrains, the settings page above is where to look if the **zethus** agent doesn't appear.
+  Check that `~/.copilot/agents` and `~/.copilot/skills` are listed and enabled.
+- With `--jetbrains-legacy`, an existing `global-copilot-instructions.md` is left alone. Paste the
+  rules from `~/.copilot/instructions/zethus.instructions.md` into it yourself. On an older build,
+  the path-scoped docs rules have no user-level equivalent.
 - No current documentation lists a **repository** `.copilot/` folder for agents, skills or
   instructions; the repo-level folders are `.github/`, `.claude/` and `.agents/`. Zethus uses a
   repo's `.copilot/` only for its own untracked config (below).
