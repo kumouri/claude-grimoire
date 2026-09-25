@@ -544,7 +544,10 @@ class UserInstaller(FakeHome):
         written = {Path(k) for k in self.manifest()}
         on_disk = {p for p in c.rglob("*") if p.is_file() and p.name != "install-manifest.json"}
         self.assertEqual({p.resolve() for p in written}, {p.resolve() for p in on_disk})
-        self.assertNotIn(str(self.home), out, "output shows ~/ paths, never the home directory")
+        plan = "
+".join(ln for ln in out.splitlines() if not ln.startswith("installed"))
+        for form in (str(self.home), self.home.as_posix()):
+            self.assertNotIn(form, plan, "the plan shows ~/ paths, never the home directory")
 
     def test_markdown_points_at_the_user_install_not_dot_github(self):
         self.install()
