@@ -544,8 +544,8 @@ class UserInstaller(FakeHome):
         written = {Path(k) for k in self.manifest()}
         on_disk = {p for p in c.rglob("*") if p.is_file() and p.name != "install-manifest.json"}
         self.assertEqual({p.resolve() for p in written}, {p.resolve() for p in on_disk})
-        plan = "
-".join(ln for ln in out.splitlines() if not ln.startswith("installed"))
+        plan = [ln for ln in out.splitlines() if not ln.startswith("installed")]
+        plan = " ".join(plan)
         for form in (str(self.home), self.home.as_posix()):
             self.assertNotIn(form, plan, "the plan shows ~/ paths, never the home directory")
 
