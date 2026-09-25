@@ -1,0 +1,41 @@
+{
+  "_readme": "Installed as .github/zethus.config.json in YOUR repo; edit it there. Every key is optional: the scripts and agent fall back to repository evidence, then ask. Key names match Amphion's .claude/amphion.config.json wherever they overlap (gates, branchModel, docSync), and the scripts read that file when this one is absent.",
+
+  "branchModel": {
+    "base": "develop",
+    "style": "branch-per-change",
+    "maxBehind": 0
+  },
+
+  "gates": {
+    "steps": [
+      { "name": "lint", "command": "npm run lint" },
+      { "name": "typecheck", "command": "npm run typecheck" },
+      { "name": "test", "command": "npm test" },
+      { "name": "build", "command": "npm run build" }
+    ]
+  },
+
+  "spec": {
+    "dir": "docs/specs"
+  },
+
+  "adr": {
+    "dir": "docs/adr"
+  },
+
+  "docSync": {
+    "map": [
+      { "doc": "README.md", "describes": ["package.json", ".github/workflows/*"] },
+      { "doc": "src/api/README.md", "describes": ["src/api/*"] }
+    ]
+  },
+
+  "docs": {
+    "pointerIgnore": ["CHANGELOG.md"]
+  },
+
+  "commits": {
+    "aiTrailer": ""
+  }
+}

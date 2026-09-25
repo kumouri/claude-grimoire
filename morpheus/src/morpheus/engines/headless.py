@@ -26,6 +26,9 @@ def _default_runner(args, input_text, timeout, env):
     proc = subprocess.run(
         args, input=input_text, capture_output=True, text=True,
         timeout=timeout, env=env,
+        # The worker is console-less (DETACHED_PROCESS), so on Windows a console
+        # child would otherwise get a fresh visible window that steals focus.
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     return proc.returncode, proc.stdout, proc.stderr
 

@@ -1,7 +1,10 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from tests._util import FIXTURES
 from morpheus.lib import transcript, config
@@ -70,6 +73,31 @@ class HeadlessEngineTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             HeadlessEngine(runner=fake_runner).run(
                 rendered="x", memory_dir=Path("."), cfg=config.DEFAULTS)
+
+
+class DefaultRunnerNoWindowTest(unittest.TestCase):
+    """The real claude spawn must not flash a console window on Windows."""
+
+    def _creationflags_used(self, module):
+        captured = {}
+
+        def fake_run(args, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with mock.patch.object(module.subprocess, "run", fake_run):
+            module._default_runner(["claude"], "input", 5, {})
+        return captured.get("creationflags")
+
+    def test_headless_runner_hides_console(self):
+        from morpheus.engines import headless
+        self.assertEqual(self._creationflags_used(headless),
+                         getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def test_hybrid_runner_hides_console(self):
+        from morpheus.engines import hybrid
+        self.assertEqual(self._creationflags_used(hybrid),
+                         getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 class HybridEngineTest(unittest.TestCase):

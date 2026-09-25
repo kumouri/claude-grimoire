@@ -85,7 +85,10 @@ flowchart TB
 ## 2. Dream sequence (PreCompact / SessionEnd)
 
 The hook is deliberately trivial and fast: it enqueues a durable job and spawns a detached worker,
-then exits. It never blocks the session (and `SessionEnd` cannot be blocked anyway).
+then exits. It never blocks the session (and `SessionEnd` cannot be blocked anyway). The whole
+chain is invisible on Windows: the worker is spawned with `DETACHED_PROCESS`, and every console
+subprocess it launches (`claude -p`, git auto-commit) uses `CREATE_NO_WINDOW` so no console window
+ever flashes up or steals focus.
 
 ```mermaid
 sequenceDiagram
