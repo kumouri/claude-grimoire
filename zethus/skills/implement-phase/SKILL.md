@@ -1,6 +1,6 @@
 ---
 name: implement-phase
-description: Implement exactly one phase of a signed-off spec on its own branch — Phase 0 first, which changes no behaviour — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
+description: Implement exactly one phase of a signed-off spec on its own branch (or as one commit series on a long-lived branch, in rebase style) — Phase 0 first, which changes no behaviour — keeping the diff inside the phase, flagging anything the spec didn't cover instead of silently deciding it, and recording deviations as an "As built" list. Use when a spec has been signed off and it's time to write code, or when resuming a phase.
 ---
 
 # Implement a phase
@@ -13,9 +13,12 @@ procedure keeps each phase small and keeps its deviations visible.
 
 - The spec's status is `SIGNED-OFF` or `PARTIAL(…)`. If it is still `DRAFT`, stop: there is nothing
   to implement yet.
-- You know which phase you're building, and every earlier phase has merged.
+- You know which phase you're building, and every earlier phase has merged (in `rebase` style:
+  is complete on the branch).
 - You're on a branch for **this phase only**, cut from the freshly fetched integration branch
-  (`git fetch` first, then branch from `origin/<base>`).
+  (`git fetch` first, then branch from `origin/<base>`). If `branchModel.style` is `rebase`, you're
+  instead on the one long-lived branch, and this phase is the next commit series on it (below).
+- `python .github/zethus/scripts/base-freshness.py` exits 0. If it says STALE, rebase first.
 
 ## Procedure
 
@@ -37,7 +40,10 @@ procedure keeps each phase small and keeps its deviations visible.
    | It invalidates the spec's design | **Stop.** Amend the spec and get sign-off again |
 
 5. **Keep commits small and conventional:** `type(scope): summary`. Every AI-assisted commit
-   carries the co-author trailer from `commits.aiTrailer`.
+   carries the co-author trailer from `commits.aiTrailer`. In `rebase` style the phase is a
+   contiguous commit series on the long-lived branch, not a branch: name the phase in each
+   subject (`feat(retry): phase 1 — …`), don't interleave commits from two phases, and start the
+   next phase only once this one is complete.
 6. **Update the spec** in the same branch. Mark the phase built (or partly built), and add an
    **As built** list with every deviation and its reason. Set the status to `PARTIAL(phases 0–N)`.
    Leave `BUILT` for when the last phase merges.

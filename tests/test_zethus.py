@@ -1,7 +1,7 @@
 """CI coverage for the Zethus Copilot process kit.
 
-Covers the four stdlib scripts (run-local-gates, new-adr, new-spec, docs-pointer-check), the
-installer, and the kit's own contract: every skill's frontmatter is valid for Copilot, the minimum
+Covers the five stdlib scripts (run-local-gates, new-adr, new-spec, docs-pointer-check,
+base-freshness), the installer, and the kit's own contract: every skill's frontmatter is valid for Copilot, the minimum
 spec stays a strict subset of the full one, and the kit's Markdown has no broken pointers.
 
 Each script is loaded from its file (the names are hyphenated, so they aren't importable modules)
@@ -47,6 +47,7 @@ gates_mod = load(SCRIPTS / "run-local-gates.py")
 adr_mod = load(SCRIPTS / "new-adr.py")
 spec_mod = load(SCRIPTS / "new-spec.py")
 pointer_mod = load(SCRIPTS / "docs-pointer-check.py")
+fresh_mod = load(SCRIPTS / "base-freshness.py")
 install_mod = load(KIT / "install.py")
 
 
@@ -376,6 +377,146 @@ class DocsPointerCheck(TempRepo):
         self.assertIn("docs sync: no answer", out)
 
 
+@unittest.skipUnless(shutil.which("git"), "git not installed")
+class BaseFreshness(TempRepo):
+    """A real bare "origin" and a clone of it, so fetch, rev-list and merge-base run for real."""
+
+    def setUp(self):
+        super().setUp()
+        self.origin = self.repo / "_origin.git"
+        self.seed = self.repo / "_seed"
+        self.work = self.repo / "work"
+        self.git(self.repo, "init", "-q", "--bare", "-b", "main", str(self.origin))
+        self.git(self.repo, "clone", "-q", str(self.origin), str(self.seed))
+        self.commit(self.seed, "a.txt", "init")
+        self.git(self.seed, "push", "-q", "origin", "HEAD:main", "HEAD:develop")
+        self.git(self.repo, "clone", "-q", str(self.origin), str(self.work))
+        self.git(self.work, "checkout", "-q", "-b", "feature/x", "origin/develop")
+        self.commit(self.work, "mine.txt", "my change")
+
+    def git(self, where: Path, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(where), "-c", "user.name=t",
+                               "-c", "user.email=t@example.com", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, where: Path, name: str, text: str) -> None:
+        (where / name).write_text(text + "\n", encoding="utf-8")
+        self.git(where, "add", name)
+        self.git(where, "commit", "-q", "-m", text)
+
+    def land_on_base(self, n: int, branch: str = "develop") -> None:
+        """Someone else merges ``n`` commits into the base on the remote."""
+        self.git(self.seed, "fetch", "-q", "origin")
+        self.git(self.seed, "checkout", "-q", "-B", branch, f"origin/{branch}")
+        for i in range(n):
+            self.commit(self.seed, f"theirs-{branch}-{i}-{os.urandom(3).hex()}.txt", f"theirs {i}")
+        self.git(self.seed, "push", "-q", "origin", branch)
+
+    def set_config(self, branch_model: dict) -> None:
+        path = self.work / ".copilot/zethus.config.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"branchModel": branch_model}), encoding="utf-8")
+        exclude = self.git(self.work, "rev-parse", "--git-path", "info/exclude")
+        with open(self.work / exclude, "a", encoding="utf-8") as fh:
+            fh.write(".copilot/\n")
+
+    def check(self, *argv):
+        return run(fresh_mod, "--repo", str(self.work), *argv)
+
+    def test_fresh_branch_passes_and_names_the_merge_base(self):
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("style branch-per-change · base origin/develop", out)
+        self.assertIn("behind   0 commit(s)", out)
+        self.assertIn("ahead    1 commit(s)", out)
+        mb = self.git(self.work, "merge-base", "HEAD", "origin/develop")
+        self.assertIn(f"diff base (merge-base) {mb[:12]}", out)
+        self.assertIn("FRESH", out)
+
+    def test_any_commit_behind_is_stale_by_default_and_the_fetch_finds_it(self):
+        self.land_on_base(1)
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("STALE — 1 commit(s) behind origin/develop", out)
+        self.assertIn("Rebase before doing anything else", out)
+        self.assertIn("or cut a fresh branch from it", out, "branch-per-change advice")
+
+    def test_no_fetch_reports_the_last_fetch_and_says_so(self):
+        self.land_on_base(2)
+        code, out = self.check("--no-fetch")
+        self.assertEqual(code, 0, out)
+        self.assertIn("NOT fetched", out)
+
+    def test_max_behind_is_the_threshold(self):
+        self.land_on_base(2)
+        self.set_config({"maxBehind": 2})
+        self.assertEqual(self.check()[0], 0)
+        self.land_on_base(1)
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("(allowed: 2)", out)
+        self.assertEqual(self.check("--max-behind", "5")[0], 0, "the flag overrides config")
+
+    def test_rebase_style_advice_and_rewritten_branch(self):
+        self.set_config({"style": "rebase"})
+        self.git(self.work, "push", "-q", "-u", "origin", "feature/x")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("style rebase", out)
+        self.assertIn("upstream origin/feature/x — contained in HEAD", out)
+
+        self.land_on_base(1)
+        code, out = self.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn("git rebase origin/develop, re-run the gates, then git push "
+                      "--force-with-lease", out)
+
+        self.git(self.work, "rebase", "-q", "origin/develop")
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        new_base = self.git(self.work, "rev-parse", "origin/develop")
+        self.assertIn(f"diff base (merge-base) {new_base[:12]}", out, "the base moved with it")
+        self.assertIn("rewritten since the last push", out)
+
+    def test_base_resolution(self):
+        self.set_config({"base": "main"})
+        code, out = self.check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("base origin/main", out)
+        self.assertIn("base origin/develop", self.check("--base", "develop")[1])
+        code, out = self.check("--base", "no-such-branch")
+        self.assertEqual(code, 2)
+        self.assertIn("origin/no-such-branch does not exist", out)
+
+    def test_without_develop_the_remote_default_branch_is_the_base(self):
+        self.git(self.work, "push", "-q", "origin", "--delete", "develop")
+        self.git(self.work, "remote", "set-head", "origin", "main")
+        code, out = self.check()
+        self.assertIn("base origin/main", out)
+
+    def test_bad_branch_model_is_a_usage_error(self):
+        for bad in ({"style": "git-flow"}, {"maxBehind": -1}, {"maxBehind": "3"},
+                    {"maxBehind": True}):
+            self.set_config(bad)
+            code, out = self.check("--no-fetch")
+            self.assertEqual(code, 2, (bad, out))
+            self.assertIn("branchModel.", out)
+
+    def test_failed_fetch_is_no_answer_not_fresh(self):
+        self.git(self.work, "remote", "set-url", "origin", str(self.repo / "_gone.git"))
+        code, out = self.check()
+        self.assertEqual(code, 3, out)
+        self.assertIn("NO ANSWER", out)
+        self.assertNotIn("FRESH", out)
+
+    def test_not_a_git_repo_is_a_usage_error(self):
+        plain = self.repo / "plain"
+        plain.mkdir()
+        code, out = run(fresh_mod, "--repo", str(plain), "--no-fetch")
+        self.assertEqual(code, 2, out)
+        self.assertIn("not a git repository", out)
+
+
 class Installer(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -399,6 +540,7 @@ class Installer(unittest.TestCase):
         for tpl in ("spec-full.md", "spec-minimum.md", "adr.md", "pr.md"):
             self.assertTrue((gh / "zethus/templates" / tpl).is_file(), tpl)
         self.assertTrue((gh / "zethus/scripts/run-local-gates.py").is_file())
+        self.assertTrue((gh / "zethus/scripts/base-freshness.py").is_file())
         self.assertTrue((gh / "zethus.config.json").is_file())
 
     def test_installed_scripts_find_installed_templates(self):
@@ -495,6 +637,21 @@ class KitContract(unittest.TestCase):
         config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
         gates = gates_mod.gates_from_config(config)
         self.assertEqual([g.name for g in gates], ["lint", "typecheck", "test", "build"])
+
+    def test_example_config_branch_model_is_valid_and_defaults_to_branch_per_change(self):
+        config = json.loads((KIT / "zethus.config.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(fresh_mod.branch_model(config), ("branch-per-change", 0))
+        self.assertEqual(fresh_mod.branch_model({}), ("branch-per-change", 0),
+                         "no config keeps today's behaviour")
+
+    def test_the_freshness_check_is_wired_into_every_stage_and_the_gates(self):
+        agent = (KIT / "agents/zethus.agent.md").read_text(encoding="utf-8")
+        gates = (KIT / "skills/pre-push-gates/SKILL.md").read_text(encoding="utf-8")
+        for text in (agent, gates):
+            self.assertIn("python .github/zethus/scripts/base-freshness.py", text)
+        readme = (KIT / "README.md").read_text(encoding="utf-8")
+        for key in ("branchModel.style", "branchModel.maxBehind"):
+            self.assertIn(key, readme)
 
     def test_kit_markdown_has_no_broken_pointers(self):
         code, out = run(pointer_mod, "--repo", str(REPO), "zethus")
