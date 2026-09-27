@@ -328,6 +328,18 @@ gates and its refusal table. The scripts give each stage an objective exit condi
 is harder to talk around than a sentence. Merging is protected by your platform's branch
 protection, not by this kit.
 
+## Modernization extensions (proposed)
+
+Two design specs for pluggable Zethus extensions — specialized skill families that recover
+business rules from legacy source, pin exact legacy behaviour in a "constitution" before any
+rewrite, and add a stage-gate overseer — none of it built yet:
+
+| Doc | Targets |
+|---|---|
+| [`docs/modernization-shared.md`](docs/modernization-shared.md) | The shared design both extensions build on: rule recovery, the constitution template, the overseer gate |
+| [`docs/batch-modernization.md`](docs/batch-modernization.md) | Spring/JPA/JDBC batches, `ksh` scripts, stored-procedure-heavy jobs; first dialect Oracle/PL-SQL |
+| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, and thirteen other legacy web targets, ranked |
+
 ## How it relates to Amphion
 
 [Amphion][amphion] is a spec-to-PR pipeline of seven Markdown skills for Claude Code. Zethus uses
