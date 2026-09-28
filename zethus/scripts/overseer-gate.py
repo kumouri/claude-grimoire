@@ -28,6 +28,21 @@ Three subcommands, one per overseer row in the shared spec's table:
     security and rotating the credential are manual steps for the human running the pipeline.
     Exit 0 clean · 1 a higher-environment credential was found · 2 usage error.
 
+``session-state`` (web-app extension, added 2026-09-28, `docs/webapp-modernization.md`)
+    Before a flow may be marked migrated: every session attribute in its session-state ledger(s)
+    (``_session_state.py``, produced by the web-app target readers) is classified into one of the
+    five stateless destinations, and none of its attribute names is still read via
+    ``session.getAttribute`` in the new/modernized source. Exit 0 clear · 1 an unclassified
+    attribute or a lingering ``HttpSession`` read was found · 2 usage error.
+
+``http-fixtures`` (web-app extension, added 2026-09-28, `docs/webapp-modernization.md`)
+    Alongside ``golden-master``: every HTTP-shaped fixture (one with a ``request``/``response``
+    pair) in the manifest has the fields a replay needs (``request.method``, ``request.path``,
+    ``response.status``), and none of them looks like it captured real user data (an email- or
+    SSN-shaped string) — scripted synthetic walks must not accidentally become live-data capture.
+    A manifest with no HTTP-shaped fixtures is a clear pass, not an error: this gate only checks the
+    fixtures that opt into the HTTP shape. Exit 0 clear · 1 gaps found · 2 usage error.
+
 Values that came from git blobs, config files, or fixture manifests are treated as adversarial input
 for the credential subcommand: it prints the *name* of a flagged variable or key, never its value.
 """
@@ -44,9 +59,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import UsageError, cfg, find_repo_root, load_config, rel  # noqa: E402
 from _ledger import LedgerError, REQUIRED_SECTIONS, parse_constitution  # noqa: E402
+from _session_state import (  # noqa: E402
+    UNCLASSIFIED, SessionStateError, read_session_ledger, still_reads_http_session,
+)
 
 DEFAULT_ENVIRONMENTS = ("dev", "test", "staging", "prod")
 DEFAULT_KEY_PATTERN = r"(?i)(password|secret|token|api[_-]?key|credential|conn(ection)?string)"
+PII_PATTERNS = (
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),                # email-shaped
+    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),                    # SSN-shaped
+)
 
 
 # --------------------------------------------------------------------------- constitution
@@ -269,6 +291,107 @@ def cmd_credential(args, repo: Path, config: dict) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- session-state
+
+
+def session_state_gaps(ledger_paths: list[Path], new_source_paths: list[Path], repo: Path) -> list[str]:
+    gaps: list[str] = []
+    all_names: set[str] = set()
+    for path in ledger_paths:
+        _, attrs = read_session_ledger(path)
+        for a in attrs:
+            all_names.add(a.name)
+            if a.destination == UNCLASSIFIED:
+                gaps.append(f"{rel(path, repo)}: [{a.name}] is unclassified — no stateless "
+                           "destination recorded")
+    for src in new_source_paths:
+        text = src.read_text(encoding="utf-8", errors="replace")
+        for name in still_reads_http_session(text, all_names):
+            gaps.append(f"{rel(src, repo)}: still reads HttpSession attribute {name!r} — this "
+                       "flow can't be marked migrated while new code still touches HttpSession "
+                       "for it")
+    return gaps
+
+
+def cmd_session_state(args, repo: Path) -> int:
+    ledger_paths = [Path(x) if Path(x).is_absolute() else repo / x for x in args.session_ledger]
+    for p in ledger_paths:
+        if not p.is_file():
+            raise UsageError(f"session-state ledger not found: {p}")
+    new_source_paths = [Path(x) if Path(x).is_absolute() else repo / x for x in (args.new_source or [])]
+    for p in new_source_paths:
+        if not p.is_file():
+            raise UsageError(f"new-source file not found: {p}")
+    try:
+        gaps = session_state_gaps(ledger_paths, new_source_paths, repo)
+    except SessionStateError as exc:
+        raise UsageError(str(exc)) from exc
+    if gaps:
+        print(f"overseer session-state-gate: {len(gaps)} gap(s) — this flow can't be marked "
+              "migrated:")
+        for g in gaps:
+            print(f"  - {g}")
+        return 1
+    print("overseer session-state-gate: clear — every session attribute is classified, and no "
+          "new-code file still reads HttpSession for one of them. Proceed.")
+    return 0
+
+
+# --------------------------------------------------------------------------- http-fixtures
+
+
+def http_fixture_gaps(manifest_path: Path) -> tuple[list[str], int]:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise LedgerError(f"can't read fixture manifest {manifest_path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise LedgerError(f"{manifest_path} is not valid JSON: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise LedgerError(f"{manifest_path} must be a JSON object with a 'fixtures' list")
+    gaps: list[str] = []
+    http_count = 0
+    for fx in manifest.get("fixtures", []) or []:
+        request, response = fx.get("request"), fx.get("response")
+        if request is None and response is None:
+            continue          # not an HTTP-shaped fixture -- this gate only checks those that are
+        http_count += 1
+        fid = fx.get("id", "?")
+        for field_name in ("method", "path"):
+            if not (isinstance(request, dict) and request.get(field_name)):
+                gaps.append(f"fixture {fid}: request missing {field_name!r}")
+        if not (isinstance(response, dict) and "status" in response):
+            gaps.append(f"fixture {fid}: response missing 'status'")
+        blob = json.dumps(fx)
+        for pattern in PII_PATTERNS:
+            if pattern.search(blob):
+                gaps.append(f"fixture {fid}: looks like it may contain real user data (matches "
+                           f"{pattern.pattern!r}) — a scripted synthetic walk must not capture "
+                           "real user data")
+                break
+    return gaps, http_count
+
+
+def cmd_http_fixtures(args, repo: Path) -> int:
+    mpath = Path(args.fixtures) if Path(args.fixtures).is_absolute() else repo / args.fixtures
+    if not mpath.is_file():
+        raise UsageError(f"fixture manifest not found: {rel(mpath, repo)}")
+    try:
+        gaps, http_count = http_fixture_gaps(mpath)
+    except LedgerError as exc:
+        raise UsageError(str(exc)) from exc
+    if gaps:
+        print(f"overseer http-fixtures-gate: {len(gaps)} gap(s) in {http_count} HTTP-shaped "
+              f"fixture(s) in {rel(mpath, repo)}:")
+        for g in gaps:
+            print(f"  - {g}")
+        return 1
+    print(f"overseer http-fixtures-gate: clear — {http_count} HTTP-shaped fixture(s) in "
+          f"{rel(mpath, repo)} have the required request/response fields, no real-user-data "
+          "pattern found. Proceed.")
+    return 0
+
+
 # --------------------------------------------------------------------------- cli
 
 
@@ -293,6 +416,17 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--key-pattern", help="override the credential-shaped-key regex")
     cr.add_argument("--config-file", action="append",
                     help="repo-relative JSON file to scan for credentials (repeatable)")
+
+    ss = sub.add_parser("session-state", help="web-app extension: gate before a flow is marked "
+                                              "migrated")
+    ss.add_argument("--session-ledger", nargs="+", required=True,
+                    help="session-state ledger JSON file(s) for the flow (_session_state.py)")
+    ss.add_argument("--new-source", nargs="*", default=[],
+                    help="modernized source file(s) to check for a lingering HttpSession read")
+
+    hf = sub.add_parser("http-fixtures", help="web-app extension: alongside golden-master, "
+                                              "validate HTTP-shaped fixtures")
+    hf.add_argument("--fixtures", required=True, help="path to the fixture manifest JSON")
     return p
 
 
@@ -307,6 +441,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_golden_master(args, repo)
         if args.command == "credential":
             return cmd_credential(args, repo, config)
+        if args.command == "session-state":
+            return cmd_session_state(args, repo)
+        if args.command == "http-fixtures":
+            return cmd_http_fixtures(args, repo)
         raise UsageError(f"unknown command: {args.command}")
     except UsageError as exc:
         print(f"overseer-gate: {exc}", file=sys.stderr)

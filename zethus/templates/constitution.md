@@ -56,3 +56,31 @@ shape — checked with `overseer-gate.py golden-master --constitution <this file
 ## Scheduling / invocation contract
 
 - No rule found — not yet recovered.
+
+## Session / state
+
+Every `HttpSession` / Struts `ActionForm` session-scope / Spring `@SessionAttributes` /
+session-scoped bean attribute goes here, with its stateless destination — see
+[`../docs/webapp-modernization.md`](../docs/webapp-modernization.md)'s SESSION STATE -> STATELESS
+design: (1) derivable per request, (2) an identity/authz claim (behind the Auth shim below),
+(3) client-held UI/flow state, (4) server-side durable state, or (5) explicit workflow state. A
+target with no clean HTTP request/response boundary (a portlet, or a JSF/Wicket/Vaadin component
+tree) records its component-state transitions here too, with the HTTP-level fixture still covering
+the outer render/action/event boundary — the constitution convention decided in
+[`../docs/webapp-modernization.md`](../docs/webapp-modernization.md#open-questions) rather than a
+dedicated skill family. A flow can't be marked migrated while any attribute here is unclassified or
+still read from `HttpSession` by the new code —
+`python .github/zethus/scripts/overseer-gate.py session-state --session-ledger <path>` must exit 0.
+
+- No rule found — not yet recovered.
+
+## Auth shim
+
+The legacy authz mechanism this modernization must preserve exactly before any replacement is
+considered — roles, realms, session timeout, every check a rule recovers. Preserving it behind an
+interface first, with OAuth2/OIDC (or any other replacement) as a later, separately decided phase,
+is the default; see [`../docs/webapp-modernization.md`](../docs/webapp-modernization.md#open-questions).
+The target HLA names the auth strategy (`webapp-hla-input-check.py`); a missing HLA answer stops
+the pipeline and asks rather than assuming either shim or replace.
+
+- No rule found — not yet recovered.
