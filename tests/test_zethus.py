@@ -591,8 +591,11 @@ class KitContract(unittest.TestCase):
     """What Copilot requires of the kit's files, per its customization docs (see zethus/README.md)."""
 
     def test_every_required_skill_exists_with_valid_frontmatter(self):
+        # >=, not ==: the optional modernization extension (docs/modernization-shared.md) installs
+        # further, pluggable skills alongside these ten core ones. See test_zethus_modernization.py
+        # for its own frontmatter and cross-link contract.
         found = {p.name for p in (KIT / "skills").iterdir() if p.is_dir()}
-        self.assertEqual(found, REQUIRED_SKILLS)
+        self.assertTrue(REQUIRED_SKILLS <= found, REQUIRED_SKILLS - found)
         for name in found:
             fm = frontmatter(KIT / "skills" / name / "SKILL.md")
             self.assertEqual(fm.get("name"), name, f"{name}: name must match its directory")

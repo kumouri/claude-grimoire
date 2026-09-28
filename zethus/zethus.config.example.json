@@ -37,5 +37,19 @@
 
   "commits": {
     "aiTrailer": ""
+  },
+
+  "_modernizationReadme": "Everything below is only read by the optional modernization extension (see docs/modernization-shared.md). Leave it out entirely if you haven't installed those skills and scripts.",
+
+  "modernization": {
+    "hlaDoc": "docs/architecture/target-hla.md"
+  },
+
+  "overseer": {
+    "environments": ["dev", "test", "staging", "prod"],
+    "currentEnvironment": "dev",
+    "credentialCheck": {
+      "configFiles": [".copilot/zethus.config.json"]
+    }
   }
 }
