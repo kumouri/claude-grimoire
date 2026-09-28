@@ -1,12 +1,46 @@
 # Zethus extension: legacy web-app modernization
 
-**Status:** DRAFT · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
+**Status:** PARTIAL (v1 built) · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
 [`modernization-shared.md`](modernization-shared.md), [`batch-modernization.md`](batch-modernization.md),
 [`../README.md`](../README.md)
 
-> This spec is more exploratory than [`batch-modernization.md`](batch-modernization.md) — it has no
-> named first engagement yet. It exists so the ranked target list and shared design are ready
-> whenever one shows up.
+> This spec started more exploratory than [`batch-modernization.md`](batch-modernization.md) — it had
+> no named first engagement. The 2026-09-28 v1 build below picks a concrete first target shape (a
+> Struts/Spring MVC hybrid mid-migration to REST + a new frontend) so the ranked target list and
+> shared design have a real build behind the top three targets, not just a design.
+
+## Implementation status (v1, 2026-09-28)
+
+**Built:** the web-app HLA input-contract gate for frontend + auth strategy
+(`scripts/webapp-hla-input-check.py`); three target-framework readers for the top of the ranked list
+— [`webapp-target-struts`](../skills/webapp-target-struts/SKILL.md) (Struts 1.x/2.x,
+`scripts/struts-reader.py`), [`webapp-target-spring-mvc-jsp`](../skills/webapp-target-spring-mvc-jsp/SKILL.md)
+(old Spring MVC + JSP, `scripts/spring-mvc-jsp-reader.py`), and
+[`webapp-target-plain-jsp-servlets`](../skills/webapp-target-plain-jsp-servlets/SKILL.md) (plain JSP +
+scriptlets/JSTL + servlets, `scripts/jsp-servlet-reader.py`) — each hybrid-aware: the Struts and
+Spring MVC readers detect a Spring controller delegating to (or wrapping) a Struts Action/ActionForm,
+and the Spring MVC reader detects a route already migrated to REST; the shared session-state ledger
+(`scripts/_session_state.py`) and route manifest (`scripts/_routes.py`) modules these readers emit
+into; the [`webapp-strangler-planner`](../skills/webapp-strangler-planner/SKILL.md) skill and
+`scripts/strangler-planner.py`, grouping routes into cutover units per-screen-flow where they share
+session state and per-route otherwise, excluding already-migrated routes; the
+[`webapp-session-state-to-stateless`](../skills/webapp-session-state-to-stateless/SKILL.md) skill for
+classifying every recovered session attribute into one of five stateless destinations and for the
+Auth shim; the constitution template's two new sections, **Session / state** and **Auth shim**
+(shared `templates/constitution.md`, so a batch constitution just marks both "No rule found"); the
+scripted-walk HTTP golden-master convention and fixture shape
+(`templates/fixture-manifest-http.example.json`); and two new overseer gates on
+`scripts/overseer-gate.py` — `session-state` (a flow can't be marked migrated while any session
+attribute is unclassified or still read from `HttpSession` by the new code) and `http-fixtures`
+(HTTP-shaped fixtures have the fields a replay needs, and none looks like it captured real user
+data), the latter wired alongside the existing `golden-master` gate rather than replacing it.
+
+**Deferred, per Open question 5's own recommendation** (a documented convention over a new skill
+family): ranked targets 4-16 (JSF, Web Flow, EJB, SOAP, Velocity/FreeMarker, Wicket, GWT, Vaadin,
+Seam, Tapestry, portlets, legacy JS frontends, app-server packaging) — none built, no reader exists
+for any of them yet; live-traffic golden-master recording (scripted synthetic walk is v1's only
+capture path); the OAuth2/OIDC auth-replacement phase itself (the shim is what v1 builds; replacing
+the mechanism is the later, separately decided phase the shim exists to make safe).
 
 ## The ask
 

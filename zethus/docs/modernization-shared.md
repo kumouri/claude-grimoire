@@ -1,6 +1,6 @@
 # Zethus extension: shared modernization foundation
 
-**Status:** DRAFT · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
+**Status:** PARTIAL (v1 built) · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
 [`batch-modernization.md`](batch-modernization.md), [`webapp-modernization.md`](webapp-modernization.md),
 [`../README.md`](../README.md)
 
@@ -13,8 +13,17 @@
 > its own status note) — the rule ledger shape (`zethus/scripts/_ledger.py`, JSON per open question
 > 2's "B" recommendation), the constitution template (`zethus/templates/constitution.md`), and the
 > overseer as three script-gates (`zethus/scripts/overseer-gate.py`, resolving open question 1 as
-> already decided: A). Status stays `DRAFT` per the rule above until `webapp-modernization.md` also
-> reaches `PARTIAL`; `webapp-modernization.md` is unchanged by this build.
+> already decided: A).
+>
+> **2026-09-28 (later the same day):** `webapp-modernization.md` also reaches `PARTIAL` with its own
+> v1 build (see its status note), so per the rule above this document's status moves to `PARTIAL`
+> too. The web-app build extends, rather than forks, the three shared artifacts: the constitution
+> template gains two sections — **Session / state** and **Auth shim** — added to the *same* shared
+> `templates/constitution.md` and to `_ledger.py`'s `REQUIRED_SECTIONS` (a batch constitution with
+> no session or web-facing auth just marks both "No rule found," the same way any inapplicable
+> section already works); the overseer gains two web-app-specific gates,
+> `overseer-gate.py session-state` and `overseer-gate.py http-fixtures`, alongside — not replacing —
+> its three original subcommands.
 
 ## The ask
 
@@ -117,6 +126,8 @@ behaviour that a modernization must reproduce exactly — not what the code *sho
 | File / message formats | Encodings, delimiters, fixed-width layouts, schemas | rule ids |
 | Exit / status contract | Exit codes, HTTP statuses, error payloads, and what each means to the caller | rule ids |
 | Scheduling / invocation contract | What triggers it, what it depends on, its SLA | rule ids |
+| Session / state *(added 2026-09-28, web-app v1)* | Every session/state attribute, cited to `file:line`, classified into one of five stateless destinations (see [`webapp-modernization.md`](webapp-modernization.md)); a target with no clean HTTP boundary (a portlet, a JSF/Wicket/Vaadin component tree) records its component-state transitions here too | rule ids |
+| Auth shim *(added 2026-09-28, web-app v1)* | The legacy authz mechanism preserved exactly behind an interface — roles, realms, session timeout — before any OAuth2/OIDC replacement, itself a later, separately decided phase | rule ids |
 
 Each row is written as a **checkable statement**, not a description: "exits 0 only when every
 input file was processed; exits 4 on a single record's validation failure without processing the
@@ -164,6 +175,8 @@ clients aren't excluded, just not what v1 is built and gated against.
 | Before Stage 3 (Implement) starts | Every constitution section has content or an explicit "no rule found"; no `High`-impact row is still `Low` confidence without a recorded waiver (ADR) | proceed | list the gaps, refuse |
 | Before Stage 4 (Tests) reports done | Every constitution row has a golden-master fixture id; the fixture actually ran against legacy output, not authored by hand | proceed | list uncovered rows, refuse |
 | Any stage, on tool setup | A credential visible in the agent's own config/environment resolves to a higher environment than the one the run is configured for | proceed | flag the credential, refuse to use it |
+| *(added 2026-09-28, web-app v1)* Before a flow may be marked migrated | Every session-state attribute cited by the flow is classified into one of five stateless destinations, and none is still read via `HttpSession` in the new code | proceed | list the unclassified/lingering attributes, refuse |
+| *(added 2026-09-28, web-app v1)* Alongside the golden-master check | Every HTTP-shaped fixture has the fields a replay needs, and none looks like it captured real user data | proceed | list the gaps, refuse |
 
 This reuses `base-freshness.py`'s pattern exactly: stdlib Python, one purpose, an exit code the
 agent's refusal table can act on (`agents/zethus.agent.md:96-109` already has the shape for this —

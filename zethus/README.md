@@ -332,14 +332,14 @@ protection, not by this kit.
 
 Two design specs for pluggable Zethus extensions — specialized skill families that recover
 business rules from legacy source, pin exact legacy behaviour in a "constitution" before any
-rewrite, and add a stage-gate overseer. The shared design and the batch extension have a v1 build
-below; the web-app extension is still a design only:
+rewrite, and add a stage-gate overseer. The shared design and both consuming extensions now have a
+v1 build:
 
 | Doc | Targets | Status |
 |---|---|---|
 | [`docs/modernization-shared.md`](docs/modernization-shared.md) | The shared design both extensions build on: rule recovery, the constitution template, the overseer gate | PARTIAL — v1 built, below |
 | [`docs/batch-modernization.md`](docs/batch-modernization.md) | Spring/JPA/JDBC batches, `ksh` scripts, Control-M-scheduled jobs, stored-procedure-heavy jobs; first dialect Oracle/PL-SQL | PARTIAL — v1 built, below |
-| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, and thirteen other legacy web targets, ranked | DRAFT — design only |
+| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, plain JSP/servlets, and thirteen other legacy web targets, ranked | PARTIAL — v1 built, below |
 
 ### v1 — batch modernization (Copilot CLI)
 
@@ -377,6 +377,54 @@ primary validation target.
 `dialect-tsql` / `dialect-postgres-plpgsql` named seams — none built yet, no code or skill files
 exist for them. Reporting a flagged credential to security and rotating it stay manual steps in v1;
 the overseer's job stops at detection.
+
+### v1 — legacy web-app modernization (Copilot CLI)
+
+Installs the same way, alongside the core kit and the batch pieces above — `install.py`'s discovery
+finds these automatically too. Built for this build's own first real target shape: a **hybrid** app
+where Struts actions are wrapped in or invoked from Spring MVC controllers, rendering JSP views,
+already part-way migrated to REST microservices plus a new frontend (the frontend and the auth
+strategy are both read from the target HLA — see
+[`docs/webapp-modernization.md`](docs/webapp-modernization.md#open-questions) — never a hardcoded
+default).
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/webapp-target-struts`](skills/webapp-target-struts/SKILL.md) | `.github/skills/` | Struts 1.x/2.x reader: routes, form-beans/validation, session scope, `roles` authz, hybrid Spring delegation |
+| [`skills/webapp-target-spring-mvc-jsp`](skills/webapp-target-spring-mvc-jsp/SKILL.md) | `.github/skills/` | Old Spring MVC + JSP reader: routes, view resolution, `@SessionAttributes`, method-security authz, hybrid Struts delegation, already-migrated-to-REST detection |
+| [`skills/webapp-target-plain-jsp-servlets`](skills/webapp-target-plain-jsp-servlets/SKILL.md) | `.github/skills/` | Plain JSP + scriptlets/JSTL + servlet reader: `web.xml` routes/authz/session-timeout, inline scriptlet/JSTL logic, and the shared raw `HttpSession` scan every reader's Java sources can use |
+| [`skills/webapp-strangler-planner`](skills/webapp-strangler-planner/SKILL.md) | `.github/skills/` | Groups recovered routes into cutover units — per-screen-flow where they share session state, per-route otherwise — and excludes already-migrated routes |
+| [`skills/webapp-session-state-to-stateless`](skills/webapp-session-state-to-stateless/SKILL.md) | `.github/skills/` | Classifies every recovered session attribute into one of five stateless destinations, and the auth-shim decision |
+| [`templates/fixture-manifest-http.example.json`](templates/fixture-manifest-http.example.json) | `.github/zethus/templates/` | Example shape for an HTTP-shaped, scripted-synthetic-walk golden-master fixture manifest, including a session-carrying fixture sequence |
+| [`scripts/webapp-hla-input-check.py`](scripts/webapp-hla-input-check.py) | `.github/zethus/scripts/` | Stops before Stage 2 unless the target HLA names a frontend and an auth strategy (`shim`/`replace`) |
+| [`scripts/struts-reader.py`](scripts/struts-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-struts` |
+| [`scripts/spring-mvc-jsp-reader.py`](scripts/spring-mvc-jsp-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-spring-mvc-jsp` |
+| [`scripts/jsp-servlet-reader.py`](scripts/jsp-servlet-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-plain-jsp-servlets` |
+| [`scripts/strangler-planner.py`](scripts/strangler-planner.py) | `.github/zethus/scripts/` | Reader backing `webapp-strangler-planner` |
+| [`scripts/_routes.py`](scripts/_routes.py) | `.github/zethus/scripts/` | Shared route-manifest shape the three readers emit and the planner consumes |
+| [`scripts/_session_state.py`](scripts/_session_state.py) | `.github/zethus/scripts/` | Shared session/state ledger shape, the raw `HttpSession` scan, and the still-reads-`HttpSession` check the overseer uses |
+
+Also extends pieces the batch v1 build shipped, rather than forking them: `templates/constitution.md`
+gains two sections, **Session / state** and **Auth shim** (a batch constitution with neither marks
+both "No rule found," same as any other inapplicable section); `scripts/overseer-gate.py` gains two
+subcommands, `session-state` (a flow can't be marked migrated while any session attribute is
+unclassified or still read from `HttpSession` by the new code) and `http-fixtures` (alongside
+`golden-master`: HTTP-shaped fixtures have the fields a replay needs, and none looks like it
+captured real user data).
+
+**Decided (2026-09-28, Telegram pickers — see
+[`docs/webapp-modernization.md`](docs/webapp-modernization.md#open-questions) for the full
+rationale):** no hardcoded frontend default (React/Vite and Next.js stay documented guidance for
+what to write into the HLA, not an assumption); strangler cutover is per-screen-flow where routes
+share session state, per-route otherwise; the auth strategy is read from the HLA, with a missing
+answer stopping the pipeline and recommending shim first; HTTP golden masters are a scripted
+synthetic walk first, live recording deferred; targets with no clean HTTP boundary get a
+constitution convention, not a new skill family.
+
+**Deferred, per Open question 5's own recommendation:** ranked targets 4-16 (JSF, Web Flow, EJB,
+SOAP, Velocity/FreeMarker, Wicket, GWT, Vaadin, Seam, Tapestry, portlets, legacy JS frontends,
+app-server packaging) — no reader exists for any of them yet; live-traffic golden-master recording;
+the OAuth2/OIDC auth-replacement phase itself.
 
 ## How it relates to Amphion
 
