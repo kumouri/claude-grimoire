@@ -62,6 +62,14 @@ A given job is usually more than one row (a `ksh` wrapper that calls a Spring JA
 stored procedures) — the readers compose; the rule ledger is per source unit and the constitution
 aggregates across all of them for one job.
 
+**Decided (2026-09-28), orchestration readers:** `batch-type/cron-scheduler-wrappers` generalizes
+to any scheduler product, not only crontab — e.g. a reader for a scheduler product such as Control-M
+— and its output is a mapping of inter-job dependencies (recorded as scheduling rules, same as a
+crontab entry) onto whatever the target orchestrates with: a Spring Batch job flow under this
+spec's default target architecture (below), or a cloud workflow orchestrator such as AWS Step
+Functions if a consuming engagement chooses one instead. The reader's job is unchanged either way —
+recover the dependency and calendar rules — only where those rules land downstream differs.
+
 ### Pluggable axis 2 — DB backend and SQL dialect (skill family)
 
 | Skill | First target | Plug-in seam for later |
@@ -78,6 +86,30 @@ method with no logic change, so its behaviour is preserved by construction), or 
 its logic in the target language). This is a per-procedure decision, not a blanket policy, and
 each one is recorded as an ADR once decided (`write-adr`), because "port everything" and "keep
 everything" both hide real behaviour-preservation risk that the constitution needs to name.
+
+**Decided (2026-09-28):** there is no hardcoded default disposition. A target High-Level
+Architecture (HLA) document is a **required pipeline input**, and the *default* keep/wrap/port
+disposition for a procedure with no procedure-specific rule is read from that document — the HLA
+is the source of record for what the target architecture wants done with stored procedures in
+general, this pipeline doesn't bake in a guess of its own. A recovered business rule can still
+override that default for one specific procedure (an HLA default of `wrap`, overridden to `port`
+for the one procedure a rule shows can't be preserved by wrapping, say). **If no HLA is supplied,
+the pipeline stops before Stage 2 and asks for one** rather than silently assuming `wrap` or `port`
+— see [Open questions](#open-questions) question 1, now decided on this basis.
+
+**Decided (2026-09-28), v1 source acquisition:** PL/SQL source may be DDL extracted from a live
+database rather than checked-in package source. `recover-business-rules` records that provenance
+explicitly — *extracted-on-date*, not "as of the repo's history" — so a rule's citation is honest
+about how fresh it is. If a referenced object's body isn't visible in what was extracted (only a
+package spec with no body, or a wrapped/obfuscated body), that is a flagged gap in the rule ledger,
+**never treated as a no-op**: a procedure this pipeline can't read is a procedure it can't yet
+recover rules for, not one with no rules to recover.
+
+**Decided (2026-09-28), access routes:** `recover-business-rules` and the characterization-test
+runner use only scriptable access to the database — JDBC, SQLcl, `sqlplus`, or an equivalent CLI —
+never a GUI database tool. A step that can only be done through a GUI (a vendor console with no
+scripted equivalent, say) becomes an explicit manual handoff to a person, recorded the same way any
+other overseer gap is, not silently skipped.
 
 ### Pluggable axis 3 — target architecture (default, with rationale)
 
@@ -100,9 +132,10 @@ Why this default and not a full rewrite onto something else:
   doing the work.
 
 This is a default, not a mandate: a consuming engagement can choose differently (say, an
-event-driven redesign) and record that choice as an ADR against this spec's recommendation — the
-constitution and rule-recovery skills don't change either way; only the target side of the phase
-plan does.
+event-driven redesign, or a cloud workflow orchestrator such as AWS Step Functions if the estate's
+dependency graph is scheduler-driven rather than framework-driven) and record that choice as an ADR
+against this spec's recommendation — the constitution and rule-recovery skills don't change either
+way; only the target side of the phase plan does.
 
 ### The shared artifacts, specialized for batch
 
@@ -117,6 +150,12 @@ plan does.
   [Open questions](#open-questions) — and, for stored procedures with a `keep` disposition, the
   golden master calls the same real procedure from both legacy and modernized callers, so the test
   is only proving the caller's behaviour is preserved, not re-testing the procedure itself.
+  **Decided (2026-09-28):** whichever way question 3 resolves, a shared non-production database is
+  an allowed fixture target, not only the disposable-containerized option — but only under
+  non-destructive constraints: the suite writes into its own data namespace, cleans up or rolls
+  back everything it wrote, and assumes no exclusive access to the instance (other work may be
+  reading or writing it concurrently). A suite that can't meet those three constraints against a
+  given shared instance isn't ready to run there.
 - **Overseer gates:** unchanged from [`modernization-shared.md`](modernization-shared.md#4-the-overseer--a-stage-gate-not-a-second-pipeline) —
   before Implement, every constitution row sourced or explicitly empty; before Tests report done,
   every row has a fixture that ran against the *legacy* job, not an authored expectation.
@@ -153,11 +192,15 @@ see the note at the top of this document.
    (A) `wrap` by default, `port` only when a rule can't otherwise be preserved (e.g., the
    procedure does something the target language can't call into, like a DB-side scheduled job),
    `keep` only for pure set-based bulk operations with no business logic; (B) `port` by default, to
-   get everything out of the database. **Recommended: A** — wrapping preserves behaviour by
-   construction (the constitution only has to describe a calling contract, not re-derive the
-   procedure's own logic), and porting is where behaviour-preservation risk concentrates, so it
-   should be the exception that gets extra scrutiny, not the default. · Decides: Ceryce, once
-   recorded as a standing ADR for the extension.
+   get everything out of the database. **DECIDED (2026-09-28): neither A nor B — no hardcoded
+   default.** A target High-Level Architecture (HLA) document is a required pipeline input, and the
+   default keep/wrap/port disposition is read from it rather than assumed by this spec; recovered
+   business rules still drive per-procedure overrides against that default. If no HLA is supplied,
+   the pipeline stops and asks, rather than silently falling back to A or B. Reasoning: a
+   pipeline-level guess is exactly the kind of unreviewed disposition choice the constitution exists
+   to prevent — the HLA is the artifact where that call belongs, not a hardcoded fallback. See the
+   [Design](#pluggable-axis-2--db-backend-and-sql-dialect-skill-family) section above for detail. ·
+   Decided by: Ceryce.
 2. **Golden-master granularity: full schema/database diff, or targeted table/file diff?**
    Options: (A) diff only the tables/files the constitution's Outputs/Side-effects rows name;
    (B) diff the whole schema state before/after. **Recommended: A** — cheaper to run and to

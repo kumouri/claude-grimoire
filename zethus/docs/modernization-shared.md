@@ -148,16 +148,32 @@ table F1 already owns, and Zethus's whole design principle is one enforcing pipe
 built the same way `base-freshness.py` already gates Stage 0 (F1, README.md:59): a script with an
 unambiguous exit code, invoked by the `zethus` agent, not a second brain.
 
+**Decided (2026-09-28):** this extension's v1 targets the Copilot CLI as its harness, matching the
+base Zethus kit's own primary validation target (README.md's Copilot-client table); other Copilot
+clients aren't excluded, just not what v1 is built and gated against.
+
 | Stage boundary | Overseer checks | Exit 0 | Exit 1 |
 |---|---|---|---|
 | Before Stage 3 (Implement) starts | Every constitution section has content or an explicit "no rule found"; no `High`-impact row is still `Low` confidence without a recorded waiver (ADR) | proceed | list the gaps, refuse |
 | Before Stage 4 (Tests) reports done | Every constitution row has a golden-master fixture id; the fixture actually ran against legacy output, not authored by hand | proceed | list uncovered rows, refuse |
+| Any stage, on tool setup | A credential visible in the agent's own config/environment resolves to a higher environment than the one the run is configured for | proceed | flag the credential, refuse to use it |
 
 This reuses `base-freshness.py`'s pattern exactly: stdlib Python, one purpose, an exit code the
 agent's refusal table can act on (`agents/zethus.agent.md:96-109` already has the shape for this —
-"decline, and say why" — this just adds two rows). See
-[Open questions](#open-questions) for whether "a special agent" should instead be a literal second
-`.agent.md` later, once real use shows the script-gate isn't enough.
+"decline, and say why" — this just adds these rows). The credential row is a standing safety check
+rather than a stage boundary: **v1's job stops at detection** — flagging the credential and
+refusing to use it — not at remediation; reporting it to security and rotating it are left to the
+human running the pipeline.
+
+**Decided (2026-09-28): "script-gates now, agent later."** v1 ships deterministic script-gates at
+these stage boundaries only — no second agent — resolving [Open questions](#open-questions)
+question 1 below. A documented extension point is left for later: every gate above already produces
+a plain exit code plus a gap list, and that pair is the contract an agent reviewer would consume
+too, so a future agent-based check slots in as another consumer of the same contract — a richer
+judgment call layered on top — not a rewrite of the script gates or the stage boundaries they sit
+at. Building it is triggered by evidence, not schedule: once a real modernization run surfaces a gap
+the deterministic checks structurally can't catch (a judgment call, not a missing citation or a
+missing fixture id), that gap is the spec for the second `.agent.md`.
 
 ### Mapping onto Zethus's stages
 
@@ -180,17 +196,20 @@ agent's refusal table can act on (`agents/zethus.agent.md:96-109` already has th
 |---|---|
 | Seven-stage pipeline, refusal model, sign-off rule | `recover-business-rules` skill |
 | `write-spec-full` / `write-adr` / `test-plan` / `pr-description` procedures | `templates/constitution.md` |
-| `run-local-gates.py`, `base-freshness.py`, config resolution order | Overseer stage-gate script(s) (two new exit-condition checks) |
+| `run-local-gates.py`, `base-freshness.py`, config resolution order | Overseer stage-gate script(s) (three new exit-condition checks) |
 | `docs-sync-check` + `docSync.map` | A confidence vocabulary (High/Medium/Low) for recovered rules |
 | Branch models, PR template, gate mechanism | Per-stack characterization-test shape (specified per consuming spec) |
 
 ## Open questions
 
 1. **Should the overseer stay a script-gate, or become a second `.agent.md` later?** Options:
-   (A) script-gate only, as designed above; (B) a second custom agent from day one. **Recommended:
-   A**, because it reuses `base-freshness.py`'s proven shape and keeps one pipeline (F8); revisit
-   if real use shows the `zethus` agent's own refusal table can't carry the extra checks
-   legibly. · Decides: Ceryce, after the first modernization spec ships a phase.
+   (A) script-gate only, as designed above; (B) a second custom agent from day one. **DECIDED
+   (2026-09-28): A — script-gates now, agent later.** v1 ships deterministic script-gates at the
+   stage boundaries above, reusing `base-freshness.py`'s proven shape and keeping one pipeline (F8);
+   a documented extension point for adding an agent reviewer is left in the
+   [overseer design](#4-the-overseer--a-stage-gate-not-a-second-pipeline) above, to be built once
+   real modernization runs show what the script-gates miss — not on a fixed revisit schedule. ·
+   Decided by: Ceryce.
 2. **Markdown-only rule ledger, or Markdown plus a machine-checkable companion file?** Options:
    (A) Markdown table only; (B) Markdown plus a YAML/JSON ledger the overseer scripts read
    directly. **Recommended: B**, because the overseer's coverage check (constitution row → fixture
