@@ -144,38 +144,54 @@ Web-specific instantiation:
 
 1. **Confirm the frontend default, or name a different one.** Options: (A) React + TypeScript +
    Vite for every engagement; (B) case-by-case, with Next.js/SSR as the default for
-   public/SEO-sensitive targets and React + Vite for internal apps. **Recommended: B** — the
-   reasoning above already carves out this exception; naming it as a real option rather than a
-   footnote keeps a future engagement from forcing a client-side router onto a marketing site. ·
-   Decides: Ceryce.
+   public/SEO-sensitive targets and React + Vite for internal apps. **DECIDED (2026-09-28, Telegram
+   picker): neither A nor B — no hardcoded default.** The frontend is read from the target HLA
+   document (the same required input the batch extension already uses for stored-procedure
+   disposition, see [`modernization-shared.md`](modernization-shared.md)); **if the HLA names no
+   frontend, the pipeline stops before Stage 2 and asks, exactly like a missing stored-procedure
+   disposition** — never a silent React/Vite (or any other) fallback. The React + TypeScript + Vite
+   / Next.js-for-SEO reasoning above stays in this document as guidance for *what to write into the
+   HLA*, not as a pipeline-level assumption; Angular is an equally supported HLA-named choice (see
+   the hybrid target shape below), and any other frontend the HLA names is honored the same way. ·
+   Decided by: Ceryce.
 2. **Strangler cutover granularity: per-route, per-screen-flow, or per-module?** Options:
    (A) per-route (finest-grained, easiest single-route rollback); (B) per-screen-flow (groups
-   routes that share session state, so a flow doesn't get split mid-cutover). **Recommended: B for
-   any target with real session/state rows (JSF, Wicket, Web Flow, Vaadin, portlets), A
-   otherwise** — a flow with shared state can't safely cut over one route at a time without
-   temporarily splitting session state across old and new. · Decides: whoever specs the first
-   consuming engagement, once the target framework is known.
+   routes that share session state, so a flow doesn't get split mid-cutover). **DECIDED
+   (2026-09-28, Telegram picker): per-screen-flow where routes share session state, per-route
+   otherwise** — generalizing the original recommendation from "B for session-heavy frameworks, A
+   otherwise" to a single rule the strangler-fig planner applies mechanically to any target: group
+   routes into a cutover unit only when they actually share session state (found by the session/state
+   inventory below), leave every other route as its own independent unit. This is stricter than the
+   original per-framework heuristic and needs no framework-specific special-casing in the planner.
+   · Decided by: Ceryce.
 3. **Auth modernization: preserve the legacy mechanism behind a compatibility shim first, or
    replace it with OAuth2/OIDC immediately?** Options: (A) shim first — the constitution captures
    the *exact* legacy authz behaviour (roles, realms, session timeout) behind an interface, and
    replacing the mechanism is a later, separately decided phase; (B) replace immediately as part of
-   modernizing. **Recommended: A** — auth is the highest-blast-radius category of behaviour to get
-   subtly wrong, and separating "preserve behaviour" from "modernize the mechanism" is the same
-   discipline the whole modernization design already applies everywhere else (Phase 0 changes
-   nothing; a later phase changes something, deliberately). · Decides: Ceryce.
+   modernizing. **DECIDED (2026-09-28, Telegram picker): read it from the HLA; if the HLA doesn't
+   say, STOP AND ASK, recommending shim first.** Same shape as question 1 and as the batch
+   extension's stored-procedure disposition: the HLA is the source of record for the target's auth
+   strategy, and a recovered rule can still override the default for one specific check. **Never a
+   silent fallback to either A or B** — the pipeline does not assume shim, and it does not assume
+   replace; the missing-value gate that stops and asks recommends shim first (option A's reasoning
+   above still holds as the *recommendation the ask carries*, not as an assumed default). · Decided
+   by: Ceryce.
 4. **HTTP golden-master capture: live traffic recording, or a synthetic scripted walk?** Options:
    (A) a synthetic scripted walk through the legacy app's routes, hand- or Copilot-authored;
-   (B) recording real production traffic. **Recommended: A first** — repeatable, no risk of
-   capturing real user data into a fixture file that then needs its own handling, and it can start
-   before any recording infrastructure exists. Recording live traffic is a reasonable *later*
-   enhancement for coverage a scripted walk misses, opted into separately. · Decides: whoever specs
-   the first consuming engagement.
+   (B) recording real production traffic. **DECIDED (2026-09-28, Telegram picker): A — scripted
+   synthetic walk first.** Live traffic recording stays a documented, later, separately opted-into
+   enhancement (not built in v1) for coverage a scripted walk misses; it is not silently assumed to
+   be needed, and nothing in v1 requires it. · Decided by: Ceryce.
 5. **How does a target with no clean HTTP request/response boundary (portlets, and to some extent
    JSF/Wicket/Vaadin's server-side component trees) fit the HTTP-level golden-master design?**
    Options: (A) a dedicated note in the constitution's session/state section describing
    component-level state transitions, with the HTTP-level fixture still covering the outer
    render/action/event boundary; (B) a fifth rule-recovery axis specifically for component-state
-   frameworks. **Recommended: A** — these targets rank low (9, 11, 14 above) and are structurally
-   similar enough to each other that a dedicated axis would be built for one engagement and then
-   sit unused; a documented constitution convention scales better than a new skill family per rare
-   target. · Decides: whoever specs the first engagement that actually needs one of these targets.
+   frameworks. **DECIDED (2026-09-28, Telegram picker): A — a constitution convention, no new
+   skill family.** Component-state transitions for these targets are recorded as rows in the
+   constitution's **Session / state** section (added to the shared template by this build — see
+   [`modernization-shared.md`](modernization-shared.md#2-the-behaviour-constitution-template-templatesconstitutionmd)),
+   with the outer render/action/event boundary still covered by an HTTP-level fixture. These targets
+   remain deferred in this v1 build (see [Implementation status](#implementation-status-v1-2026-09-28)
+   below); the convention is documented so the first engagement that needs one of them doesn't have
+   to design it from scratch. · Decided by: Ceryce.
