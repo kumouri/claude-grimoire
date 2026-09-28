@@ -1,11 +1,36 @@
 # Zethus extension: legacy batch modernization
 
-**Status:** DRAFT · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
+**Status:** PARTIAL (v1 built) · **Owner:** Ceryce Armstrong · **Date:** 2026-09-27 · **Related:**
 [`modernization-shared.md`](modernization-shared.md), [`../README.md`](../README.md)
 
 > Client-specific detail (what one real estate actually looks like) does not belong in this public
 > repo. Those questions are tracked privately; see [Open questions](#open-questions) for the
 > generic ones this spec needs answered regardless of estate.
+
+## Implementation status (v1, 2026-09-28)
+
+**Built:** the overseer as three script-gates (`scripts/overseer-gate.py`); the HLA input-contract
+gate (`scripts/hla-input-check.py`); PL/SQL DDL intake with provenance, drift and
+`DBMS_SCHEDULER`/`DBMS_JOB` batch discovery (`scripts/plsql-ddl-intake.py`); a Control-M
+job-definition reader mapping onto a Spring Batch flow or Step Functions
+(`scripts/control-m-reader.py`); a `ksh` wrapper reader (`scripts/ksh-wrapper-reader.py`); the
+`recover-business-rules` skill plus four readers —
+[`dialect-oracle-plsql`](../skills/dialect-oracle-plsql/SKILL.md),
+[`batch-type-ksh-scripts`](../skills/batch-type-ksh-scripts/SKILL.md),
+[`batch-type-cron-scheduler-wrappers`](../skills/batch-type-cron-scheduler-wrappers/SKILL.md), and
+[`batch-type-spring-jpa-jdbc`](../skills/batch-type-spring-jpa-jdbc/SKILL.md) (a reading guide, no
+dedicated script — see that skill for why); the `constitution.md` template and an example fixture
+manifest. All of it targets the Copilot CLI, per this doc's own decided scope. See
+[`../README.md`](../README.md#v1--batch-modernization-copilot-cli) for the installable piece list.
+
+**Deferred**, per Open question 5's own recommendation to ship the ask's named first target rather
+than every reader at once: `batch-type-spring-batch-xml`, `batch-type-stored-procedure-heavy`, and
+the `dialect-db2-sql-pl` / `dialect-tsql` / `dialect-postgres-plpgsql` named seams. Open questions 2
+(golden-master granularity), 3 (where fixtures run), and 4 (a stricter confidence bar for
+restart/commit rows) are **left open, on purpose** — none was marked DECIDED before this build, and
+nothing in v1 hardcodes an answer to any of them; each is still a call for whoever specs a real
+consuming engagement's characterization-test implementation. Reporting a flagged credential to
+security, and rotating it, stay manual steps — the overseer's job stops at detection.
 
 ## The ask
 
@@ -226,6 +251,9 @@ see the note at the top of this document.
 5. **Do the five `batch-type/*` skills ship together, or one at a time as engagements need them?**
    Options: (A) all five in the first implementation phase; (B) `spring-jpa-jdbc` and
    `ksh-scripts` first (the ask's named first target), the other three as later phases gated on a
-   real engagement needing them. **Recommended: B** — matches Zethus's own "smallest useful step
-   first" phasing rule, and a skill built without a real job to test it against is a guess dressed
-   up as a deliverable. · Decides: whoever specs the first implementation phase.
+   real engagement needing them. **DECIDED (2026-09-28, v1 build): B, widened by one** —
+   `spring-jpa-jdbc`, `ksh-scripts` and `cron-scheduler-wrappers` (Control-M) shipped together,
+   because the ask separately named a scheduler reader as in-scope for v1; `spring-batch-xml` and
+   `stored-procedure-heavy` stayed deferred, matching B's reasoning exactly — a skill built without
+   a real job to test it against is a guess dressed up as a deliverable. · Decided by: implementer,
+   per this question's own routing.

@@ -328,17 +328,55 @@ gates and its refusal table. The scripts give each stage an objective exit condi
 is harder to talk around than a sentence. Merging is protected by your platform's branch
 protection, not by this kit.
 
-## Modernization extensions (proposed)
+## Modernization extensions
 
 Two design specs for pluggable Zethus extensions — specialized skill families that recover
 business rules from legacy source, pin exact legacy behaviour in a "constitution" before any
-rewrite, and add a stage-gate overseer — none of it built yet:
+rewrite, and add a stage-gate overseer. The shared design and the batch extension have a v1 build
+below; the web-app extension is still a design only:
 
-| Doc | Targets |
-|---|---|
-| [`docs/modernization-shared.md`](docs/modernization-shared.md) | The shared design both extensions build on: rule recovery, the constitution template, the overseer gate |
-| [`docs/batch-modernization.md`](docs/batch-modernization.md) | Spring/JPA/JDBC batches, `ksh` scripts, stored-procedure-heavy jobs; first dialect Oracle/PL-SQL |
-| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, and thirteen other legacy web targets, ranked |
+| Doc | Targets | Status |
+|---|---|---|
+| [`docs/modernization-shared.md`](docs/modernization-shared.md) | The shared design both extensions build on: rule recovery, the constitution template, the overseer gate | PARTIAL — v1 built, below |
+| [`docs/batch-modernization.md`](docs/batch-modernization.md) | Spring/JPA/JDBC batches, `ksh` scripts, Control-M-scheduled jobs, stored-procedure-heavy jobs; first dialect Oracle/PL-SQL | PARTIAL — v1 built, below |
+| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, and thirteen other legacy web targets, ranked | DRAFT — design only |
+
+### v1 — batch modernization (Copilot CLI)
+
+Installs the same way as the core kit, alongside it: copy the pieces below into your repo's
+`.github/`, or run `install.py` (its skill/script discovery is generic — it finds these
+automatically, no separate flag needed). Nothing here is required by the core ten-skill pipeline;
+install it only if you're recovering rules from legacy batch source.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/recover-business-rules`](skills/recover-business-rules/SKILL.md) | `.github/skills/` | The generic rule-recovery shape (in the manner of `research-existing-code`), aimed at legacy source |
+| [`skills/dialect-oracle-plsql`](skills/dialect-oracle-plsql/SKILL.md) | `.github/skills/` | Oracle 12c-era PL/SQL reader: packages, triggers, autonomous transactions, a keep/wrap/port disposition per procedure |
+| [`skills/batch-type-spring-jpa-jdbc`](skills/batch-type-spring-jpa-jdbc/SKILL.md) | `.github/skills/` | Reading guide for plain Spring JPA/JDBC batch loops — commit boundaries, restart/idempotency, skip policy — no dedicated script; see the skill for why |
+| [`skills/batch-type-ksh-scripts`](skills/batch-type-ksh-scripts/SKILL.md) | `.github/skills/` | `ksh` wrapper reader: `getopts` args, exit codes, `trap`, locking, retry/backoff loops |
+| [`skills/batch-type-cron-scheduler-wrappers`](skills/batch-type-cron-scheduler-wrappers/SKILL.md) | `.github/skills/` | Scheduler reader, Control-M first: dependency graph + calendar rules, mapped onto a Spring Batch flow or a cloud workflow orchestrator |
+| [`templates/constitution.md`](templates/constitution.md) | `.github/zethus/templates/` | The behaviour-constitution artifact: nine fixed sections, each rule cited to the ledger |
+| [`templates/fixture-manifest.example.json`](templates/fixture-manifest.example.json) | `.github/zethus/templates/` | Example shape for a golden-master fixture manifest |
+| [`scripts/overseer-gate.py`](scripts/overseer-gate.py) | `.github/zethus/scripts/` | The overseer's three script-gates: constitution completeness before Implement, golden-master coverage before Tests report done, and a standing higher-environment-credential detector |
+| [`scripts/hla-input-check.py`](scripts/hla-input-check.py) | `.github/zethus/scripts/` | Stops before Stage 2 unless a target HLA document with a default stored-procedure disposition is configured |
+| [`scripts/plsql-ddl-intake.py`](scripts/plsql-ddl-intake.py) | `.github/zethus/scripts/` | PL/SQL DDL intake: objects, provenance, wrapped/invisible-body flags, repo-vs-live-extract drift, `DBMS_SCHEDULER`/`DBMS_JOB` batch discovery |
+| [`scripts/control-m-reader.py`](scripts/control-m-reader.py) | `.github/zethus/scripts/` | Control-M job-definition reader: dependency graph, calendar rules, Spring Batch flow / Step Functions mapping |
+| [`scripts/ksh-wrapper-reader.py`](scripts/ksh-wrapper-reader.py) | `.github/zethus/scripts/` | `ksh` wrapper reader used by `batch-type-ksh-scripts` |
+| [`scripts/_ledger.py`](scripts/_ledger.py) | `.github/zethus/scripts/` | Shared rule-ledger and constitution parsing every script above uses |
+
+New config keys these scripts read, all optional (see
+[`zethus.config.example.json`](zethus.config.example.json)): `modernization.hlaDoc`,
+`overseer.environments`, `overseer.currentEnvironment`, `overseer.credentialCheck.*`.
+
+**Decided and unchanged from the design docs:** the overseer stays a script-gate, no second agent
+("script-gates now, agent later"); this build targets the Copilot CLI, matching the base kit's own
+primary validation target.
+
+**Deferred, per the batch spec's own "ship the ask's named first target" phasing:**
+`batch-type-spring-batch-xml`, `batch-type-stored-procedure-heavy`, and the `dialect-db2-sql-pl` /
+`dialect-tsql` / `dialect-postgres-plpgsql` named seams — none built yet, no code or skill files
+exist for them. Reporting a flagged credential to security and rotating it stay manual steps in v1;
+the overseer's job stops at detection.
 
 ## How it relates to Amphion
 

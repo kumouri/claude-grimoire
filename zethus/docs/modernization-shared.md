@@ -8,6 +8,13 @@
 > artifacts it defines are built once, by whichever of the two consuming specs merges first, and
 > the other spec then depends on them rather than re-specifying them. Status stays `DRAFT` until
 > both consuming specs are at least `PARTIAL`.
+>
+> **2026-09-28:** the three shared artifacts are now built, by `batch-modernization.md`'s v1 (see
+> its own status note) — the rule ledger shape (`zethus/scripts/_ledger.py`, JSON per open question
+> 2's "B" recommendation), the constitution template (`zethus/templates/constitution.md`), and the
+> overseer as three script-gates (`zethus/scripts/overseer-gate.py`, resolving open question 1 as
+> already decided: A). Status stays `DRAFT` per the rule above until `webapp-modernization.md` also
+> reaches `PARTIAL`; `webapp-modernization.md` is unchanged by this build.
 
 ## The ask
 
@@ -212,9 +219,11 @@ missing fixture id), that gap is the spec for the second `.agent.md`.
    Decided by: Ceryce.
 2. **Markdown-only rule ledger, or Markdown plus a machine-checkable companion file?** Options:
    (A) Markdown table only; (B) Markdown plus a YAML/JSON ledger the overseer scripts read
-   directly. **Recommended: B**, because the overseer's coverage check (constitution row → fixture
-   id) is exactly the kind of check `docs-pointer-check.py` already proves is worth scripting
-   rather than eyeballing. · Decides: whoever specs the first consuming skill's implementation.
+   directly. **DECIDED (2026-09-28, batch v1): B**, as a JSON companion specifically
+   (`rules/<unit>.json`, see `_ledger.py`) rather than YAML — the kit's scripts are stdlib-only, and
+   JSON needs no hand-rolled parser the way YAML would. The overseer's coverage check (constitution
+   row → fixture id) is exactly the kind of check `docs-pointer-check.py` already proves is worth
+   scripting rather than eyeballing. · Decided by: implementer, per this question's own routing.
 3. **Does a `Low`-confidence rule ever block a phase outright, or only require a recorded
    waiver?** Options: (A) always requires a waiver (ADR), never blocks by itself; (B) blocks
    automatically above some proportion of `Low` rows. **Recommended: A** — a hard numeric
