@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import unittest
 from unittest import mock
 
@@ -275,6 +276,26 @@ class StoryEnrichExample(unittest.TestCase):
         text = (STORY_ENRICH_EXAMPLE / "story-enriched.md").read_text(encoding="utf-8")
         for snippet in FORBIDDEN_SNIPPETS:
             self.assertNotIn(snippet, text, f"must not contain: {snippet!r}")
+
+    def test_acceptance_criteria_numbers_are_cited_or_flagged_as_proposals(self):
+        """Every concrete number in an acceptance-criteria bullet must either come with a
+        ``file:line`` citation or be marked ``(proposed: ...)`` for the PO. A bare invented number
+        stated as fact is exactly the confidently-wrong failure story-enrich exists to prevent."""
+        text = (STORY_ENRICH_EXAMPLE / "story-enriched.md").read_text(encoding="utf-8")
+        section = text.split("## Acceptance criteria", 1)[1].split("\n## ", 1)[0]
+        items = [item for item in re.split(r"\n(?=- \[)", section.strip()) if item.strip()]
+        self.assertTrue(items, "expected at least one acceptance-criteria bullet")
+        number_re = re.compile(r"(?<![\w.:/-])\d+(?![\w])")
+        citation_re = re.compile(r"[\w./]+\.\w+:\d+")
+        for item in items:
+            numbers = number_re.findall(item)
+            if not numbers:
+                continue
+            self.assertTrue(
+                "(proposed" in item.lower() or citation_re.search(item),
+                f"unsourced number(s) {numbers} in acceptance criterion not cited to a "
+                f"file:line or marked as a proposal: {item!r}",
+            )
 
     def test_diff_is_a_real_unified_diff_between_the_two_files(self):
         diff_text = (STORY_ENRICH_EXAMPLE / "story-enriched.diff").read_text(encoding="utf-8")

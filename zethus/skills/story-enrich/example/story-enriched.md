@@ -24,13 +24,16 @@ a notification.
 ## Acceptance criteria
 
 - [ ] *(kept, tightened)* Given a push send that fails with a retryable error (network timeout, 5xx
-      from the provider), when the failure occurs, then it is retried up to 3 times with a 5-second
-      delay between attempts.
+      from the provider), when the failure occurs, then it is retried up to *N* times
+      *(proposed: 3; PO to confirm — neither the story nor the code specifies a count)* with a
+      *D*-second delay between attempts *(proposed: 5; PO to confirm — same, no source for this
+      value)*.
 - [ ] *(added)* Given a push send that fails with a non-retryable error (4xx from the provider,
       e.g. an invalid device token), when the failure occurs, then it is **not** retried and is
       logged once.
-- [ ] *(added)* Given all 3 retries are exhausted, when the last attempt still fails, then the
-      notification is logged as permanently failed, not silently dropped.
+- [ ] *(added)* Given all *N* retries are exhausted *(proposed: 3 — see above)*, when the last
+      attempt still fails, then the notification is logged as permanently failed, not silently
+      dropped.
 
 ## Risks & edge cases
 
@@ -45,6 +48,10 @@ a notification.
 1. **Is a 4xx (e.g. bad device token) supposed to unregister the device**, or just log and stop?
    The code today does neither. Recommend: log and stop for this story; unregistering is a separate
    change.
+2. **What retry count and delay should apply to a retryable failure?** Neither the story nor
+   `src/notifications/push_sender.py:22` specifies numbers today — this enrichment proposed 3
+   retries with a 5-second delay only as a starting point, not a sourced requirement. PO to confirm
+   or adjust both values.
 
 ## Evidence
 

@@ -37,7 +37,7 @@ write the enrichment from the story text alone; the story text is exactly the th
 | Summary | One or two sentences, plus the original key/link if there is one. |
 | What it actually touches | Files, modules, or services, cited to `file:line`. |
 | Current behaviour | What the code does today, as observed — not what the story assumed. |
-| Acceptance criteria | The original criteria, each marked kept / tightened / added, plus any new ones the research surfaced. Given/When/Then or a checklist. |
+| Acceptance criteria | The original criteria, each marked kept / tightened / added, plus any new ones the research surfaced. Given/When/Then or a checklist. Every concrete value — a count, duration, limit, threshold, or the name of a new thing — is either cited to the story, a `file:line`, config, or a doc, or explicitly marked as a proposal (see below). |
 | Risks & edge cases | What the research found that could go wrong, and any case the current acceptance criteria don't cover. |
 | Open questions for the PO | Anything only a person can decide — scope, priority, a tradeoff the code doesn't resolve. |
 | Evidence | A short, cited list — see below. |
@@ -57,6 +57,17 @@ continuing it. Leave out:
 The **Evidence** section is where citations live: a short list, each line one fact and its
 `file:line`, in the same style [research-existing-code](../research-existing-code/SKILL.md) uses.
 It is not a place to paste the research transcript.
+
+### No invented values
+
+Research surfaces what the code does, not what a good number would be. When an acceptance
+criterion needs a concrete value — a retry count, a timeout, a size limit, a threshold, the name of
+a new field or component — and neither the story, the code, config, nor a doc actually states it,
+that value is **not a requirement**. Mark it as a proposal instead, inline, e.g. "retried up to *N*
+times *(proposed: 3; PO to confirm)*", and add a matching line under **Open questions for the PO**
+naming exactly what's unsourced. A confidently-stated number that came from nowhere is the failure
+this whole skill exists to prevent — an enricher that invents requirements is worse than one that
+flags a gap.
 
 ## Step 4: diff against the original
 
@@ -82,6 +93,9 @@ update to paste in themselves; that's not a lesser outcome, it's the guardrail w
   existing assumptions with more words.
 - **A citation that doesn't support the claim next to it.** Same rule as
   [research-existing-code](../research-existing-code/SKILL.md).
+- **Stating an invented value as a requirement.** A retry count, timeout, or threshold that isn't in
+  the story, the code, config, or a doc gets marked *(proposed: ...)* and raised as an open question
+  — never presented as settled fact.
 - **Pasting a stack trace or a 40-line function** into the output because it was handy. Cite it.
 - **Writing back to Jira before an explicit approval of the diff shown.**
 
