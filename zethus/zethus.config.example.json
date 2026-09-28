@@ -39,6 +39,19 @@
     "aiTrailer": ""
   },
 
+  "_jiraReadme": "Everything below is only read by the optional Jira integration skills (see docs/jira-skills.md). Leave it out entirely if you haven't installed spec-to-stories or story-enrich.",
+
+  "stories": {
+    "dir": "docs/stories"
+  },
+
+  "jira": {
+    "cli": ["acli", "jira"],
+    "baseUrlEnv": "JIRA_BASE_URL",
+    "emailEnv": "JIRA_EMAIL",
+    "tokenEnvVars": ["JIRA_API_TOKEN", "JIRA_TOKEN"]
+  },
+
   "_modernizationReadme": "Everything below is only read by the optional modernization extension (see docs/modernization-shared.md). Leave it out entirely if you haven't installed those skills and scripts.",
 
   "modernization": {

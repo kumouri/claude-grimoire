@@ -401,6 +401,29 @@ the same design where they overlap, rather than duplicating it:
   them. If you copy them into `.github/skills/` too, skip Amphion's `pr-description`: Zethus's
   version adds to it (evidence, what was not checked, decisions) and has the same name.
 
+## Jira integration
+
+Two optional, standalone skills that translate between specs and Jira stories. Like the
+modernization extensions above, neither is part of the core ten and both install the same way,
+alongside them. Neither writes to Jira without an explicit human approval given in the same
+session — see [`docs/jira-skills.md`](docs/jira-skills.md) for what "decent" means and the full
+guardrail.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/spec-to-stories`](skills/spec-to-stories/SKILL.md) | `.github/skills/` | Turns a Markdown spec into one Jira-ready story per file plus an index, each INVEST-checked with a self-check table and a flag on any failing criterion; groups stories into epics when the spec has phases |
+| [`skills/story-enrich`](skills/story-enrich/SKILL.md) | `.github/skills/` | Researches an existing Jira story against the real codebase (via `research-existing-code`, cited to `file:line`) and proposes a human-relevant enrichment plus a diff against the original |
+| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
+| [`templates/story.md`](templates/story.md) | `.github/zethus/templates/` | One story: user story statement, context, acceptance criteria, out of scope, dependencies, INVEST self-check |
+| [`templates/stories-index.md`](templates/stories-index.md) | `.github/zethus/templates/` | The index a batch of stories is listed under, grouped by epic when the spec has phases |
+
+New config keys, all optional (see [`zethus.config.example.json`](zethus.config.example.json)):
+`stories.dir`, `jira.cli`, `jira.baseUrlEnv`, `jira.emailEnv`, `jira.tokenEnvVars`.
+
+Unlike the rest of this kit, these two skills also work unmodified under Claude Code — the
+`SKILL.md` format is shared between the two harnesses, see
+[`docs/jira-skills.md`](docs/jira-skills.md#harness).
+
 ## Maintaining this kit
 
 - Keep it **organization-neutral**. It must contain no company, client, or project names and no
