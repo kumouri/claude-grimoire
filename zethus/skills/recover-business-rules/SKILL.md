@@ -12,12 +12,18 @@ See [`../../docs/modernization-shared.md`](../../docs/modernization-shared.md#1-
 for the full design this skill implements.
 
 This is the generic shape. A consuming engagement installs the per-source-shape readers it needs
-alongside it — [`batch-type-spring-jpa-jdbc`](../batch-type-spring-jpa-jdbc/SKILL.md),
+alongside it — batch: [`batch-type-spring-jpa-jdbc`](../batch-type-spring-jpa-jdbc/SKILL.md),
 [`batch-type-ksh-scripts`](../batch-type-ksh-scripts/SKILL.md),
 [`batch-type-cron-scheduler-wrappers`](../batch-type-cron-scheduler-wrappers/SKILL.md),
-[`dialect-oracle-plsql`](../dialect-oracle-plsql/SKILL.md) — each following this shape but reading
-one kind of legacy source. A job is usually more than one row: a `ksh` wrapper calling a Spring JAR
-calling stored procedures composes all four readers into one rule ledger.
+[`dialect-oracle-plsql`](../dialect-oracle-plsql/SKILL.md); web app:
+[`webapp-target-struts`](../webapp-target-struts/SKILL.md),
+[`webapp-target-spring-mvc-jsp`](../webapp-target-spring-mvc-jsp/SKILL.md),
+[`webapp-target-plain-jsp-servlets`](../webapp-target-plain-jsp-servlets/SKILL.md) — each following
+this shape but reading one kind of legacy source. A job is usually more than one row: a `ksh`
+wrapper calling a Spring JAR calling stored procedures composes all four batch readers into one rule
+ledger; a hybrid web app composes the three web-app readers the same way (see
+[`webapp-target-struts`](../webapp-target-struts/SKILL.md) for the Struts-wrapped-in-Spring-MVC
+shape this build's web-app readers are built for).
 
 ## Procedure
 
@@ -71,6 +77,18 @@ When a row's unit is a stored procedure (via `dialect-oracle-plsql`), record one
 comes from the target HLA document, never from this skill (see
 [`dialect-oracle-plsql`](../dialect-oracle-plsql/SKILL.md#hla-required)); a recovered rule can
 override that default for one procedure, recorded as its own ADR.
+
+## Reading web-app session state and the auth strategy
+
+When a row's unit is a `HttpSession`/ActionForm-scope/`@SessionAttributes` attribute (via
+[`webapp-target-struts`](../webapp-target-struts/SKILL.md),
+[`webapp-target-spring-mvc-jsp`](../webapp-target-spring-mvc-jsp/SKILL.md), or
+[`webapp-target-plain-jsp-servlets`](../webapp-target-plain-jsp-servlets/SKILL.md)), classification
+into one of five stateless destinations is a separate, first-class step — see
+[`webapp-session-state-to-stateless`](../webapp-session-state-to-stateless/SKILL.md) — never left
+`unclassified` past sign-off. Grouping recovered routes into a cutover plan is
+[`webapp-strangler-planner`](../webapp-strangler-planner/SKILL.md)'s job, once the readers above have
+run.
 
 ## Output
 

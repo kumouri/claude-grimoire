@@ -14,6 +14,8 @@ ledger_mod = load(KIT / "scripts" / "_ledger.py")
 MODERNIZATION_SKILLS = {
     "recover-business-rules", "batch-type-spring-jpa-jdbc", "batch-type-ksh-scripts",
     "batch-type-cron-scheduler-wrappers", "dialect-oracle-plsql",
+    "webapp-target-struts", "webapp-target-spring-mvc-jsp", "webapp-target-plain-jsp-servlets",
+    "webapp-strangler-planner", "webapp-session-state-to-stateless",
 }
 
 
@@ -48,6 +50,25 @@ class ModernizationSkills(unittest.TestCase):
         text = (KIT / "skills/dialect-oracle-plsql/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("scripts/hla-input-check.py", text)
         self.assertIn("scripts/plsql-ddl-intake.py", text)
+
+    def test_webapp_strangler_planner_uses_the_webapp_hla_and_planner_scripts(self):
+        text = (KIT / "skills/webapp-strangler-planner/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/webapp-hla-input-check.py", text)
+        self.assertIn("scripts/strangler-planner.py", text)
+
+    def test_webapp_session_state_uses_the_overseer_gate(self):
+        text = (KIT / "skills/webapp-session-state-to-stateless/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("scripts/overseer-gate.py", text)
+
+    def test_each_webapp_target_reader_uses_its_own_script(self):
+        pairs = {
+            "webapp-target-struts": "scripts/struts-reader.py",
+            "webapp-target-spring-mvc-jsp": "scripts/spring-mvc-jsp-reader.py",
+            "webapp-target-plain-jsp-servlets": "scripts/jsp-servlet-reader.py",
+        }
+        for skill, script in pairs.items():
+            text = (KIT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn(script, text, skill)
 
 
 class ConstitutionTemplate(unittest.TestCase):
