@@ -27,7 +27,7 @@ CONSTITUTION_HEADER = """# Constitution: demo-job
 ALL_SECTIONS = (
     "Inputs", "Outputs", "Side effects", "Ordering", "Error & restart semantics",
     "Commit / transaction boundaries", "File / message formats", "Exit / status contract",
-    "Scheduling / invocation contract",
+    "Scheduling / invocation contract", "Session / state", "Auth shim",
 )
 
 

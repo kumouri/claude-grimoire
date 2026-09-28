@@ -1,0 +1,39 @@
+{
+  "_readme": "Example HTTP-shaped golden-master fixture manifest for the web-app extension (see docs/webapp-modernization.md). Same manifest shape overseer-gate.py's `golden-master` subcommand already reads (fixtures[].ruleIds + fixtures[].source == 'legacy-run'); each fixture additionally carries a 'request'/'response' pair, which is what makes it HTTP-shaped and puts it under `overseer-gate.py http-fixtures`'s extra check (request.method, request.path, response.status all present; no email/SSN-shaped string anywhere in the fixture -- a scripted synthetic walk must never capture real user data). A session-carrying flow needs a fixture SEQUENCE, not a single request -- GM-2 and GM-3 below share a cookie jar the walk script replays in order, exercising the constitution's Session / state rows, not just a route in isolation.",
+  "fixtures": [
+    {
+      "id": "GM-1",
+      "ruleIds": ["ROUTE-12"],
+      "source": "legacy-run",
+      "capturedAt": "2026-09-28",
+      "request": {"method": "GET", "path": "/orders", "headers": {}, "cookies": {}, "body": null},
+      "response": {"status": 200, "headers": {"Content-Type": "text/html"},
+                   "body": "fixtures/gm1-response.html", "redirects": []}
+    },
+    {
+      "id": "GM-2",
+      "ruleIds": ["ACTION-40", "SESSTATE-40"],
+      "source": "legacy-run",
+      "capturedAt": "2026-09-28",
+      "sequence": "login-then-view-cart",
+      "step": 1,
+      "request": {"method": "POST", "path": "/login.do",
+                 "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+                 "cookies": {}, "body": "username=test-user&password=***"},
+      "response": {"status": 302, "headers": {"Set-Cookie": "JSESSIONID=<captured>"},
+                   "body": null, "redirects": ["/cart"]}
+    },
+    {
+      "id": "GM-3",
+      "ruleIds": ["SESSTATE-40"],
+      "source": "legacy-run",
+      "capturedAt": "2026-09-28",
+      "sequence": "login-then-view-cart",
+      "step": 2,
+      "request": {"method": "GET", "path": "/cart", "headers": {},
+                 "cookies": {"JSESSIONID": "<from step 1>"}, "body": null},
+      "response": {"status": 200, "headers": {"Content-Type": "text/html"},
+                   "body": "fixtures/gm3-response.html", "redirects": []}
+    }
+  ]
+}

@@ -29,6 +29,10 @@ REQUIRED_SECTIONS = (
     "Inputs", "Outputs", "Side effects", "Ordering", "Error & restart semantics",
     "Commit / transaction boundaries", "File / message formats", "Exit / status contract",
     "Scheduling / invocation contract",
+    # Added 2026-09-28 for the web-app extension (docs/webapp-modernization.md); a batch
+    # engagement with no session or web-facing auth marks both "No rule found" like any other
+    # section that doesn't apply -- the shared constitution template is one template, not a fork.
+    "Session / state", "Auth shim",
 )
 
 NO_RULE_FOUND_RE = re.compile(r"^-\s*No rule found\b(?:\s*[—-]\s*(?P<reason>.+))?$", re.I)
