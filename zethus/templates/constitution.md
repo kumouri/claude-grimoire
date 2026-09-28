@@ -15,6 +15,12 @@ confidence: High|Medium|Low`. A `Low`-confidence row needs a recorded waiver:
 so explicitly: `- No rule found — <reason>`, never left blank. See
 [`../docs/modernization-shared.md`](../docs/modernization-shared.md#2-the-behaviour-constitution-template-templatesconstitutionmd).
 
+Before Stage 3 (Implement): `python .github/zethus/scripts/overseer-gate.py constitution
+--constitution <this file>` must exit 0. Before Stage 4 (Tests) reports done: every rule id cited
+below needs a fixture in the manifest named in "Fixture manifest" above, captured by running the
+*legacy* system — see [`fixture-manifest.example.json`](fixture-manifest.example.json) for the
+shape — checked with `overseer-gate.py golden-master --constitution <this file>`.
+
 ## Inputs
 
 - No rule found — not yet recovered.

@@ -4,6 +4,7 @@ the constitution template's sections match what `_ledger.py` requires the overse
 """
 from __future__ import annotations
 
+import json
 import unittest
 
 from tests.test_zethus import KIT, frontmatter, load
@@ -58,3 +59,8 @@ class ConstitutionTemplate(unittest.TestCase):
         text = (KIT / "templates/constitution.md").read_text(encoding="utf-8")
         for field in ("Rule ledger(s)", "Fixture manifest"):
             self.assertIn(f"| {field} |", text)
+
+    def test_example_fixture_manifest_has_a_legacy_run_source(self):
+        data = json.loads((KIT / "templates/fixture-manifest.example.json").read_text(encoding="utf-8"))
+        self.assertTrue(data["fixtures"])
+        self.assertEqual(data["fixtures"][0]["source"], "legacy-run")
