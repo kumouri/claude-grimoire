@@ -328,6 +328,104 @@ gates and its refusal table. The scripts give each stage an objective exit condi
 is harder to talk around than a sentence. Merging is protected by your platform's branch
 protection, not by this kit.
 
+## Modernization extensions
+
+Two design specs for pluggable Zethus extensions — specialized skill families that recover
+business rules from legacy source, pin exact legacy behaviour in a "constitution" before any
+rewrite, and add a stage-gate overseer. The shared design and both consuming extensions now have a
+v1 build:
+
+| Doc | Targets | Status |
+|---|---|---|
+| [`docs/modernization-shared.md`](docs/modernization-shared.md) | The shared design both extensions build on: rule recovery, the constitution template, the overseer gate | PARTIAL — v1 built, below |
+| [`docs/batch-modernization.md`](docs/batch-modernization.md) | Spring/JPA/JDBC batches, `ksh` scripts, Control-M-scheduled jobs, stored-procedure-heavy jobs; first dialect Oracle/PL-SQL | PARTIAL — v1 built, below |
+| [`docs/webapp-modernization.md`](docs/webapp-modernization.md) | Struts, old Spring MVC + JSP, plain JSP/servlets, and thirteen other legacy web targets, ranked | PARTIAL — v1 built, below |
+
+### v1 — batch modernization (Copilot CLI)
+
+Installs the same way as the core kit, alongside it: copy the pieces below into your repo's
+`.github/`, or run `install.py` (its skill/script discovery is generic — it finds these
+automatically, no separate flag needed). Nothing here is required by the core ten-skill pipeline;
+install it only if you're recovering rules from legacy batch source.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/recover-business-rules`](skills/recover-business-rules/SKILL.md) | `.github/skills/` | The generic rule-recovery shape (in the manner of `research-existing-code`), aimed at legacy source |
+| [`skills/dialect-oracle-plsql`](skills/dialect-oracle-plsql/SKILL.md) | `.github/skills/` | Oracle 12c-era PL/SQL reader: packages, triggers, autonomous transactions, a keep/wrap/port disposition per procedure |
+| [`skills/batch-type-spring-jpa-jdbc`](skills/batch-type-spring-jpa-jdbc/SKILL.md) | `.github/skills/` | Reading guide for plain Spring JPA/JDBC batch loops — commit boundaries, restart/idempotency, skip policy — no dedicated script; see the skill for why |
+| [`skills/batch-type-ksh-scripts`](skills/batch-type-ksh-scripts/SKILL.md) | `.github/skills/` | `ksh` wrapper reader: `getopts` args, exit codes, `trap`, locking, retry/backoff loops |
+| [`skills/batch-type-cron-scheduler-wrappers`](skills/batch-type-cron-scheduler-wrappers/SKILL.md) | `.github/skills/` | Scheduler reader, Control-M first: dependency graph + calendar rules, mapped onto a Spring Batch flow or a cloud workflow orchestrator |
+| [`templates/constitution.md`](templates/constitution.md) | `.github/zethus/templates/` | The behaviour-constitution artifact: nine fixed sections, each rule cited to the ledger |
+| [`templates/fixture-manifest.example.json`](templates/fixture-manifest.example.json) | `.github/zethus/templates/` | Example shape for a golden-master fixture manifest |
+| [`scripts/overseer-gate.py`](scripts/overseer-gate.py) | `.github/zethus/scripts/` | The overseer's three script-gates: constitution completeness before Implement, golden-master coverage before Tests report done, and a standing higher-environment-credential detector |
+| [`scripts/hla-input-check.py`](scripts/hla-input-check.py) | `.github/zethus/scripts/` | Stops before Stage 2 unless a target HLA document with a default stored-procedure disposition is configured |
+| [`scripts/plsql-ddl-intake.py`](scripts/plsql-ddl-intake.py) | `.github/zethus/scripts/` | PL/SQL DDL intake: objects, provenance, wrapped/invisible-body flags, repo-vs-live-extract drift, `DBMS_SCHEDULER`/`DBMS_JOB` batch discovery |
+| [`scripts/control-m-reader.py`](scripts/control-m-reader.py) | `.github/zethus/scripts/` | Control-M job-definition reader: dependency graph, calendar rules, Spring Batch flow / Step Functions mapping |
+| [`scripts/ksh-wrapper-reader.py`](scripts/ksh-wrapper-reader.py) | `.github/zethus/scripts/` | `ksh` wrapper reader used by `batch-type-ksh-scripts` |
+| [`scripts/_ledger.py`](scripts/_ledger.py) | `.github/zethus/scripts/` | Shared rule-ledger and constitution parsing every script above uses |
+
+New config keys these scripts read, all optional (see
+[`zethus.config.example.json`](zethus.config.example.json)): `modernization.hlaDoc`,
+`overseer.environments`, `overseer.currentEnvironment`, `overseer.credentialCheck.*`.
+
+**Decided and unchanged from the design docs:** the overseer stays a script-gate, no second agent
+("script-gates now, agent later"); this build targets the Copilot CLI, matching the base kit's own
+primary validation target.
+
+**Deferred, per the batch spec's own "ship the ask's named first target" phasing:**
+`batch-type-spring-batch-xml`, `batch-type-stored-procedure-heavy`, and the `dialect-db2-sql-pl` /
+`dialect-tsql` / `dialect-postgres-plpgsql` named seams — none built yet, no code or skill files
+exist for them. Reporting a flagged credential to security and rotating it stay manual steps in v1;
+the overseer's job stops at detection.
+
+### v1 — legacy web-app modernization (Copilot CLI)
+
+Installs the same way, alongside the core kit and the batch pieces above — `install.py`'s discovery
+finds these automatically too. Built for this build's own first real target shape: a **hybrid** app
+where Struts actions are wrapped in or invoked from Spring MVC controllers, rendering JSP views,
+already part-way migrated to REST microservices plus a new frontend (the frontend and the auth
+strategy are both read from the target HLA — see
+[`docs/webapp-modernization.md`](docs/webapp-modernization.md#open-questions) — never a hardcoded
+default).
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/webapp-target-struts`](skills/webapp-target-struts/SKILL.md) | `.github/skills/` | Struts 1.x/2.x reader: routes, form-beans/validation, session scope, `roles` authz, hybrid Spring delegation |
+| [`skills/webapp-target-spring-mvc-jsp`](skills/webapp-target-spring-mvc-jsp/SKILL.md) | `.github/skills/` | Old Spring MVC + JSP reader: routes, view resolution, `@SessionAttributes`, method-security authz, hybrid Struts delegation, already-migrated-to-REST detection |
+| [`skills/webapp-target-plain-jsp-servlets`](skills/webapp-target-plain-jsp-servlets/SKILL.md) | `.github/skills/` | Plain JSP + scriptlets/JSTL + servlet reader: `web.xml` routes/authz/session-timeout, inline scriptlet/JSTL logic, and the shared raw `HttpSession` scan every reader's Java sources can use |
+| [`skills/webapp-strangler-planner`](skills/webapp-strangler-planner/SKILL.md) | `.github/skills/` | Groups recovered routes into cutover units — per-screen-flow where they share session state, per-route otherwise — and excludes already-migrated routes |
+| [`skills/webapp-session-state-to-stateless`](skills/webapp-session-state-to-stateless/SKILL.md) | `.github/skills/` | Classifies every recovered session attribute into one of five stateless destinations, and the auth-shim decision |
+| [`templates/fixture-manifest-http.example.json`](templates/fixture-manifest-http.example.json) | `.github/zethus/templates/` | Example shape for an HTTP-shaped, scripted-synthetic-walk golden-master fixture manifest, including a session-carrying fixture sequence |
+| [`scripts/webapp-hla-input-check.py`](scripts/webapp-hla-input-check.py) | `.github/zethus/scripts/` | Stops before Stage 2 unless the target HLA names a frontend and an auth strategy (`shim`/`replace`) |
+| [`scripts/struts-reader.py`](scripts/struts-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-struts` |
+| [`scripts/spring-mvc-jsp-reader.py`](scripts/spring-mvc-jsp-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-spring-mvc-jsp` |
+| [`scripts/jsp-servlet-reader.py`](scripts/jsp-servlet-reader.py) | `.github/zethus/scripts/` | Reader backing `webapp-target-plain-jsp-servlets` |
+| [`scripts/strangler-planner.py`](scripts/strangler-planner.py) | `.github/zethus/scripts/` | Reader backing `webapp-strangler-planner` |
+| [`scripts/_routes.py`](scripts/_routes.py) | `.github/zethus/scripts/` | Shared route-manifest shape the three readers emit and the planner consumes |
+| [`scripts/_session_state.py`](scripts/_session_state.py) | `.github/zethus/scripts/` | Shared session/state ledger shape, the raw `HttpSession` scan, and the still-reads-`HttpSession` check the overseer uses |
+
+Also extends pieces the batch v1 build shipped, rather than forking them: `templates/constitution.md`
+gains two sections, **Session / state** and **Auth shim** (a batch constitution with neither marks
+both "No rule found," same as any other inapplicable section); `scripts/overseer-gate.py` gains two
+subcommands, `session-state` (a flow can't be marked migrated while any session attribute is
+unclassified or still read from `HttpSession` by the new code) and `http-fixtures` (alongside
+`golden-master`: HTTP-shaped fixtures have the fields a replay needs, and none looks like it
+captured real user data).
+
+**Decided (2026-09-28, Telegram pickers — see
+[`docs/webapp-modernization.md`](docs/webapp-modernization.md#open-questions) for the full
+rationale):** no hardcoded frontend default (React/Vite and Next.js stay documented guidance for
+what to write into the HLA, not an assumption); strangler cutover is per-screen-flow where routes
+share session state, per-route otherwise; the auth strategy is read from the HLA, with a missing
+answer stopping the pipeline and recommending shim first; HTTP golden masters are a scripted
+synthetic walk first, live recording deferred; targets with no clean HTTP boundary get a
+constitution convention, not a new skill family.
+
+**Deferred, per Open question 5's own recommendation:** ranked targets 4-16 (JSF, Web Flow, EJB,
+SOAP, Velocity/FreeMarker, Wicket, GWT, Vaadin, Seam, Tapestry, portlets, legacy JS frontends,
+app-server packaging) — no reader exists for any of them yet; live-traffic golden-master recording;
+the OAuth2/OIDC auth-replacement phase itself.
+
 ## How it relates to Amphion
 
 [Amphion][amphion] is a spec-to-PR pipeline of seven Markdown skills for Claude Code. Zethus uses
@@ -350,6 +448,29 @@ the same design where they overlap, rather than duplicating it:
 - **Installing both.** Amphion's skills use the same `SKILL.md` format, and Copilot can load
   them. If you copy them into `.github/skills/` too, skip Amphion's `pr-description`: Zethus's
   version adds to it (evidence, what was not checked, decisions) and has the same name.
+
+## Jira integration
+
+Two optional, standalone skills that translate between specs and Jira stories. Like the
+modernization extensions above, neither is part of the core ten and both install the same way,
+alongside them. Neither writes to Jira without an explicit human approval given in the same
+session — see [`docs/jira-skills.md`](docs/jira-skills.md) for what "decent" means and the full
+guardrail.
+
+| Piece | Installs to | Purpose |
+|---|---|---|
+| [`skills/spec-to-stories`](skills/spec-to-stories/SKILL.md) | `.github/skills/` | Turns a Markdown spec into one Jira-ready story per file plus an index, each INVEST-checked with a self-check table and a flag on any failing criterion; groups stories into epics when the spec has phases |
+| [`skills/story-enrich`](skills/story-enrich/SKILL.md) | `.github/skills/` | Researches an existing Jira story against the real codebase (via `research-existing-code`, cited to `file:line`) and proposes a human-relevant enrichment plus a diff against the original |
+| [`scripts/jira-access.py`](scripts/jira-access.py) | `.github/zethus/scripts/` | Detects a `jira`/`acli` CLI or a REST token in the environment. An available Jira/Atlassian MCP tool is checked by the skill itself, not this script. Exit codes: `0` CLI or REST found · `1` neither, degrade to pasted input · `2` usage error |
+| [`templates/story.md`](templates/story.md) | `.github/zethus/templates/` | One story: user story statement, context, acceptance criteria, out of scope, dependencies, INVEST self-check |
+| [`templates/stories-index.md`](templates/stories-index.md) | `.github/zethus/templates/` | The index a batch of stories is listed under, grouped by epic when the spec has phases |
+
+New config keys, all optional (see [`zethus.config.example.json`](zethus.config.example.json)):
+`stories.dir`, `jira.cli`, `jira.baseUrlEnv`, `jira.emailEnv`, `jira.tokenEnvVars`.
+
+Unlike the rest of this kit, these two skills also work unmodified under Claude Code — the
+`SKILL.md` format is shared between the two harnesses, see
+[`docs/jira-skills.md`](docs/jira-skills.md#harness).
 
 ## Maintaining this kit
 

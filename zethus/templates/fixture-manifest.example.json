@@ -1,0 +1,14 @@
+{
+  "_readme": "Example golden-master fixture manifest, read by `overseer-gate.py golden-master` (see docs/modernization-shared.md#3-characterization--golden-master-tests). Each fixture must have been captured by running the LEGACY system against a known input and recording its real output/side-effect/exit-code -- 'source': 'legacy-run' -- never hand-authored from reading the code ('source': 'authored', which the gate does not count as coverage). One fixture may cover more than one constitution rule id.",
+  "fixtures": [
+    {
+      "id": "GM-1",
+      "ruleIds": ["R1", "R2"],
+      "source": "legacy-run",
+      "capturedAt": "2026-09-28",
+      "legacyCommand": "sqlplus -s app/*** @capture_gm1.sql > gm1.out",
+      "input": "fixtures/gm1-input.csv",
+      "expectedOutput": "fixtures/gm1-expected.csv"
+    }
+  ]
+}
