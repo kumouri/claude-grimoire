@@ -50,7 +50,13 @@ it doesn't fit, or a compound piece of work hiding behind one title.
 7. **Sizing notes are optional and never invented.** A rough signal ("touches one module, no
    migration") is fine; a story point, T-shirt size, or hour estimate is not — that's the team's
    call at estimation time, not this skill's.
-8. **Stop.** Present the drafts and wait — see the guardrail below.
+8. **No invented values in acceptance criteria either.** A count, duration, limit, threshold, or the
+   name of a new thing goes in only if the spec actually states it, traced back to the section it
+   came from. If a criterion needs a number the spec doesn't give, don't supply one — mark it a
+   proposal, e.g. "retried up to *N* times *(proposed: 3; PO to confirm)*", and list it under a
+   dependency or a note in Context; the same rule story-enrich applies to a criterion's numbers
+   applies here to a story's.
+9. **Stop.** Present the drafts and wait — see the guardrail below.
 
 ## Output
 
@@ -94,6 +100,8 @@ approved batch.
 - **Padding acceptance criteria with boilerplate** ("Given nothing, when nothing, then it works")
   to look complete. An unfillable criterion means the story isn't sliced finely enough yet.
 - **Inventing a story point or T-shirt size** because a sizing field looks empty otherwise.
+- **Inventing an acceptance-criteria value** (a count, duration, limit, or threshold) the spec never
+  stated, and presenting it as a requirement instead of a flagged proposal.
 - **One story labeled as an epic**, or an epic with only one story in it — either means the slicing
   step was skipped.
 - **A silent split.** If a story became two, the index says so; don't let a reader wonder where a

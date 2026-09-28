@@ -41,6 +41,12 @@ Decent is explicitly **not**:
   ("touches one module, no migration"); a number is the team's job at estimation time.
 - One story concealing what should be several, or an epic with one story pretending to be several
   phases.
+- **An unsourced concrete value stated as a requirement.** A count, duration, limit, threshold, or
+  the name of a new thing that doesn't trace to the spec, the code, config, or a doc is a **proposal
+  for the PO**, not a fact — marked inline (e.g. "retried up to *N* times *(proposed: 3; PO to
+  confirm)*") and listed as an open question, never asserted as settled. This applies to both skills:
+  a value spec-to-stories can't trace to the spec, and a value story-enrich can't trace to the story
+  or the code it researched.
 
 [`../skills/spec-to-stories/SKILL.md`](../skills/spec-to-stories/SKILL.md) is the full procedure
 this backs; [`../skills/spec-to-stories/example/`](../skills/spec-to-stories/example/) is a worked
@@ -48,10 +54,11 @@ example, including one story that ships flagged on purpose so the mechanism is v
 
 For the enrichment skill, "decent" means the same standard applied to the *output shape*: every
 claim about the code is cited to `file:line` (the same discipline
-[research-existing-code](../skills/research-existing-code/SKILL.md) already enforces), and the
+[research-existing-code](../skills/research-existing-code/SKILL.md) already enforces), every
+concrete value in a requirement is either cited or flagged as a proposal (the rule above), and the
 result reads as something a PO can act on — not a transcript of how the research happened. See
-[`../skills/story-enrich/SKILL.md`](../skills/story-enrich/SKILL.md)'s "Human-relevant only"
-section for exactly what that excludes.
+[`../skills/story-enrich/SKILL.md`](../skills/story-enrich/SKILL.md)'s "Human-relevant only" and "No
+invented values" sections for exactly what that excludes and requires.
 
 ## The approval guardrail
 
