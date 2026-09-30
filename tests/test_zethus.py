@@ -30,7 +30,7 @@ SCRIPTS = KIT / "scripts"
 REQUIRED_SKILLS = {
     "research-existing-code", "write-spec-full", "write-spec-minimum", "write-adr",
     "fresh-eyes-investigation", "implement-phase", "test-plan", "pre-push-gates",
-    "pr-description", "docs-sync-check",
+    "zethus-pr-description", "docs-sync-check",
 }
 
 
@@ -736,12 +736,12 @@ class UserInstaller(FakeHome):
             sys.path[:] = saved_path
 
     def test_a_file_it_did_not_install_is_never_overwritten_even_with_force(self):
-        mine = self.copilot / "skills/pr-description/SKILL.md"
+        mine = self.copilot / "skills/zethus-pr-description/SKILL.md"
         mine.parent.mkdir(parents=True)
         mine.write_text("my own skill", encoding="utf-8")
         code, out = self.install("--force")
         self.assertEqual(code, 1, out)
-        self.assertIn("~/.copilot/skills/pr-description/SKILL.md", out)
+        self.assertIn("~/.copilot/skills/zethus-pr-description/SKILL.md", out)
         self.assertEqual(mine.read_text(encoding="utf-8"), "my own skill")
         self.assertFalse((self.copilot / "agents").exists(), "nothing written on a conflict")
 
