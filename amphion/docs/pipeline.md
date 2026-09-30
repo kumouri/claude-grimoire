@@ -88,8 +88,8 @@ procedure. The agent that changes the code is already the one obliged to fix the
 it, in the same change. Measured across the runs that could still be found, a separate docs pass
 mostly **added** text, all of it to repo-root instruction files that load into every later
 session, and caught little real drift. The last version is at the `sync-claude-md-final` tag.
-The evidence is in the stage 1 assessment, Appendix A
-([PR #37](https://github.com/kumouri/mesmer-grimoire/pull/37)).
+The evidence is in the stage 1 assessment,
+[Appendix A](../../docs/stage1-assessment-2026-09-30.md#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
 
 Two things replace it:
 

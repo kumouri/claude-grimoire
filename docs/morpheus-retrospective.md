@@ -10,8 +10,9 @@ mnemosyne. The last code is kept at two tags on the same commit:
 - [`grimoire-final`](https://github.com/kumouri/mesmer-grimoire/tree/grimoire-final/grimoire):
   the umbrella MCP server and plugin.
 
-The evidence behind the decision is in the stage 1 assessment
-([PR #37](https://github.com/kumouri/mesmer-grimoire/pull/37), §1.3 and §1.4). This page records
+The evidence behind the decision is in the
+[stage 1 assessment](stage1-assessment-2026-09-30.md#13-morpheus-automatic-session-dreaming)
+(§1.3 and §1.4). This page records
 what morpheus was for, why it never worked, and what is worth keeping from it.
 
 ## What it was meant to do
