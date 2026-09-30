@@ -47,7 +47,7 @@ Therefore:
 What this guard deliberately does NOT flag
 ==========================================
 Ceryce's name, her ``@kumouri`` handle, and the portfolio attribution lines in
-``README.md`` and ``CLAUDE.md`` are **deliberate attribution** -- this is her
+``README.md`` and ``AGENTS.md`` are **deliberate attribution** -- this is her
 signed portfolio repo and the signature is the point. No rule targets them, by
 design: a rule against the author's own name in her own portfolio would be
 nothing but false positives, and "fixing" it would be the wrong repair. Her

@@ -1,5 +1,7 @@
 # Stage 1 assessment: memory engines and platform-agnostic plan (2026-09-30)
 
+<!-- doc-pointers: point-in-time -->
+
 **Status:** assessment and plan only. Nothing here has been built. **All ten
 [decisions](#4-decisions-for-ceryce) are ruled** (2026-09-30), every one as recommended. D1–D8 and
 D10 were ruled first. D9 was ruled after the

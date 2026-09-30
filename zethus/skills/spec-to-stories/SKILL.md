@@ -84,7 +84,7 @@ stops.
 
 **Only an explicit "create these" / "go ahead" / "approved", said after being shown the drafts,
 counts as approval.** Silence, a question, or "looks reasonable so far" doesn't. "Just push them,
-I trust it" gets the same answer pr-description gives to "just push it, CI will tell us": decline,
+I trust it" gets the same answer zethus-pr-description gives to "just push it, CI will tell us": decline,
 and show the drafts first — approval covers what was actually shown, not what might have been meant.
 
 If, after approval, the batch is to be created in Jira: check whether an Atlassian/Jira MCP tool is

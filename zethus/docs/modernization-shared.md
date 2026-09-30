@@ -208,14 +208,14 @@ missing fixture id), that gap is the spec for the second `.agent.md`.
 | — | — | **Overseer gate:** every constitution row has a fixture, before Tests reports done |
 | 5 · Gates | `run-local-gates.py`, `gates.steps` | A `characterization-suite` gate step, same mechanism, new command |
 | 6 · Docs | `docs-sync-check`, `docSync.map` | The constitution is a doc under the map: code changing without the constitution updating is exactly what `--sync-base` already flags (F5) |
-| 7 · PR | `pr-description`'s evidence sections | Evidence adds: rule-ledger coverage, constitution diff, golden-master pass table |
+| 7 · PR | `zethus-pr-description`'s evidence sections | Evidence adds: rule-ledger coverage, constitution diff, golden-master pass table |
 
 ### What's new vs. reused
 
 | Reused unchanged | New |
 |---|---|
 | Seven-stage pipeline, refusal model, sign-off rule | `recover-business-rules` skill |
-| `write-spec-full` / `write-adr` / `test-plan` / `pr-description` procedures | `templates/constitution.md` |
+| `write-spec-full` / `write-adr` / `test-plan` / `zethus-pr-description` procedures | `templates/constitution.md` |
 | `run-local-gates.py`, `base-freshness.py`, config resolution order | Overseer stage-gate script(s) (three new exit-condition checks) |
 | `docs-sync-check` + `docSync.map` | A confidence vocabulary (High/Medium/Low) for recovered rules |
 | Branch models, PR template, gate mechanism | Per-stack characterization-test shape (specified per consuming spec) |

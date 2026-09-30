@@ -64,9 +64,9 @@ invented values" sections for exactly what that excludes and requires.
 
 Both skills write Markdown drafts and stop. **Neither creates, updates, or comments on a real Jira
 issue without an explicit human approval, given in the same session, after being shown exactly what
-would be written.** This mirrors the guardrail `pr-description` already uses for the one other
+would be written.** This mirrors the guardrail `zethus-pr-description` already uses for the one other
 shared-system action in this kit ("open it — don't merge it",
-[`../skills/pr-description/SKILL.md`](../skills/pr-description/SKILL.md)):
+[`../skills/zethus-pr-description/SKILL.md`](../skills/zethus-pr-description/SKILL.md)):
 
 - Only an explicit "create these" / "go ahead" / "approved" / "update it" / "post this", said
   *after* the drafts or the diff are shown, counts as approval. Silence, a question, or "looks
@@ -76,7 +76,7 @@ shared-system action in this kit ("open it — don't merge it",
 - As with the rest of Zethus, this is enforced by the skill's own instructions, not by a technical
   hook — Copilot and Claude Code have no mechanism to block a tool call the way a pre-tool-use hook
   can (see the README's "The limit of enforcement"). The discipline is the same one
-  `pr-description`, `write-adr`, and the agent's refusal table already rely on.
+  `zethus-pr-description`, `write-adr`, and the agent's refusal table already rely on.
 
 ## Jira access, and how it's detected
 
