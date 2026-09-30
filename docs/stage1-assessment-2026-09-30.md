@@ -1,9 +1,11 @@
 # Stage 1 assessment: memory engines and platform-agnostic plan (2026-09-30)
 
-**Status:** assessment and plan only. Nothing here has been built. Ceryce ruled on the
-[decisions](#4-decisions-for-ceryce) on 2026-09-30. D1–D8 and D10 went as recommended. **D9 is
-open**, pending the [`sync-claude-md` deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
-See [Rulings](#rulings-2026-09-30).
+**Status:** assessment and plan only. Nothing here has been built. **All ten
+[decisions](#4-decisions-for-ceryce) are ruled** (2026-09-30), every one as recommended. D1–D8 and
+D10 were ruled first. D9 was ruled after the
+[`sync-claude-md` deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place): retire
+it, add a CI check for dead doc pointers, and write a "leaf, not root" rule. Stage 2 can start. See
+[Rulings](#rulings-2026-09-30).
 
 **The ask:**
 
@@ -36,13 +38,13 @@ See [Rulings](#rulings-2026-09-30).
   - one per-platform format each for instructions, agents and MCP registration;
   - an installer, which should grow out of the existing `zethus/install.py` (it already has a
     SHA-manifest, conflict-safe, uninstallable user-scope engine).
-- **Estimated stage 2 effort:** about 6–9 working days end to end with the recommended options, or
-  about 4–6 if the Zethus agent is not ported. Add about 1 day if D9 retires `sync-claude-md` in
-  favour of a pointer lint. See the [effort table](#35-effort).
-- **`sync-claude-md` should probably go, not be renamed.** Every run on record wrote to a repo-root
+- **Estimated stage 2 effort:** about 7–10 working days end to end with the ruled options. That
+  includes about 1 day for D9's retire-plus-check outcome over the rename first assumed, and about
+  2 days for the Zethus port. See the [effort table](#35-effort).
+- **`sync-claude-md` goes; it is not renamed (D9, ruled).** Every run on record wrote to a repo-root
   `CLAUDE.md`, and 72% of the bytes it added were new detail rather than corrections. It stopped
   running in July, yet the bloat kept growing, so the real fix is a rule about *where* detail lands,
-  plus a lint. See [Appendix A](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
+  plus a CI check. See [Appendix A](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
 
 ---
 
@@ -479,7 +481,9 @@ python install.py --platform claude|copilot|codex|cursor|all   (repeatable)
   - a dry run of `install.py --platform all --user` and `--target` into a temp directory on Linux
     and Windows runners;
   - skill frontmatter lint (the agentskills.io name and description rules, which
-    `tests/test_zethus.py` already enforces for Zethus).
+    `tests/test_zethus.py` already enforces for Zethus);
+  - a blocking doc-pointer check that fails on links and backticked file paths that no longer
+    exist (D9).
 
 ### 3.5 Effort
 
@@ -492,7 +496,7 @@ working days, including tests and docs).
 | Retire the grimoire umbrella and promote mnemosyne to featured | S | D2 |
 | Mnemosyne hardening (§1.2 items 1–5) | M | D3 |
 | Commands → skills (3 left once morpheus is gone) | S | |
-| Neutralize amphion text and its config path (with fallback); carry out the D9 outcome for `sync-claude-md` | S–M | D9 is open. The recommended retire + pointer lint + rule adds about 1 day net over the rename this row first assumed |
+| Neutralize amphion text and its config path (with fallback); carry out the D9 outcome for `sync-claude-md` | S–M | D9 ruled: retire + doc-pointer CI check + "leaf, not root" rule. About 1 day net over the rename this row first assumed |
 | `catalog.json` + neutral agent, instructions and MCP layout | S | |
 | `install.py` core: generalize Zethus's engine, four host strategies, both scopes, manifest uninstall, merged-file blocks, host-CLI preference | L | The bulk of stage 2 |
 | Installer tests: 4 hosts × 2 scopes × install / re-run / edit / uninstall, with `PLATFORM` patched for 3 OSes | M | |
@@ -500,7 +504,7 @@ working days, including tests and docs).
 | Port Zethus to Claude, Codex and Cursor (agent transforms, instructions mapping, path rewrites) | M | D7; skip to save about 2 days |
 | Stage 2 verification of the §2.4 unknowns against real installs of each host | S–M | Needs each host installed locally |
 | Docs sweep: README, `AGENTS.md`, `docs/platforms.md`, per-bundle READMEs | S–M | |
-| **Total** | **about 6–9 days** | About 4–6 without the Zethus port. Add about 1 day if D9 goes with option 1 |
+| **Total** | **about 7–10 days** | Includes D9 option 1 (about 1 day) and the Zethus port (about 2 days, D7) |
 
 **Sequencing:** first PR #36 (the rename) lands. Then:
 
@@ -517,7 +521,7 @@ Each step is its own PR into `develop`.
 
 ## 4. Decisions for Ceryce
 
-Each decision lists the recommended option first.
+Each decision lists the recommended option first. **All ten are ruled.**
 
 ### Rulings (2026-09-30)
 
@@ -527,11 +531,14 @@ Ceryce, by Telegram at 16:46 CT, verbatim:
 > that skill without much benefit. It was originally designed to keep all of the documentation in
 > sync, but it wasn't doing a good job at that."
 
+After the deep dive, Ceryce answered the D9 picker at 16:59 CT, verbatim: **"Retire + CI check +
+rule"**.
+
 | Decision | Status |
 | --- | --- |
 | D1–D6, D8, D10 | **Ruled: recommended option** ("Recs.") |
 | D7 (multi-select) | **Ruled: the three recommended options** (1, 2 and 3) |
-| D9 | **Open.** The deep dive is [Appendix A](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place); D9 below now carries its options |
+| D9 | **Ruled: option 1** ("Retire + CI check + rule"), after the [deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place) |
 
 ### D1: The fate of morpheus
 
@@ -601,14 +608,16 @@ Ceryce, by Telegram at 16:46 CT, verbatim:
 3. Leave both and rely on plugin namespacing. That only works for plugin installs, not for
    `~/.agents/skills`.
 
-### D9: The fate of `sync-claude-md` (OPEN)
+### D9: The fate of `sync-claude-md` (ruled: option 1)
 
 The stage-1 draft treated this as a naming question. Ceryce asked for evidence first, and the
 [deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place) changes the
 recommendation. In short: across every run that can still be found, the skill mostly **added**
 text, always to a repo-root `CLAUDE.md`, and caught very little real drift.
 
-1. **Retire it and replace it with a mechanical check and a written rule *(recommended)*.**
+**Ruled 2026-09-30: option 1** ("Retire + CI check + rule").
+
+1. **Retire it and replace it with a mechanical check and a written rule *(recommended; ruled)*.**
    - Delete both copies: amphion's, and the user-level one that actually runs.
    - Ship a stdlib doc-pointer lint as a blocking CI step. It fails on links and backticked paths
      that no longer resolve.
@@ -869,14 +878,17 @@ neither is what actually stops bloat. The rule decides where text lands, and not
 
 ### A.8 Options
 
+Ceryce ruled option 1 on 2026-09-30 (see [Rulings](#rulings-2026-09-30)).
+
 | Option | Cost | What the evidence says |
 | --- | --- | --- |
-| **1. Retire + pointer lint + "leaf, not root" rule *(recommended)*** | S–M, about 1–2 days | Retiring loses about 3 clean fixes per 24 edits, and a lint catches the pointer class among them. The rule targets the real producer (§A.4). A lint is cheap to keep green and cannot append |
+| **1. Retire + pointer lint + "leaf, not root" rule *(recommended; ruled)*** | S–M, about 1–2 days | Retiring loses about 3 clean fixes per 24 edits, and a lint catches the pointer class among them. The rule targets the real producer (§A.4). A lint is cheap to keep green and cannot append |
 | 2. Retire, nothing in its place | Under half a day | Loses nothing measured, but leaves dangling pointers unchecked and "where does detail go" unwritten, which is the gap the assistant repo's spec identified |
 | 3. Router-only pruner (remove or relocate, report, never add) | M, about 2–3 days | The one pruning pass on record cut 365 KB to 60 KB, and growth rebuilt 223 KB within 25 days. Pruning without stopping the producer is a treadmill. It also gives an agent standing permission to delete context. Better as an occasional pass on request, which needs no skill |
 | 4. Keep and rename (the stage-1 recommendation) | S | This ports a 12%-yield skill to four hosts under a new name. It keeps two diverging copies alive unless the user-level one is also removed |
 
-**Whichever option is chosen, two host-side follow-ups apply.** Neither is a change to this repo:
+**Two host-side follow-ups apply to the ruling.** Neither is a change to this repo, and this PR
+does neither:
 
 1. **Delete the user-level copy.** It is the one that ran, and it is still in every session's
    skill listing.
