@@ -1,7 +1,9 @@
 # Stage 1 assessment: memory engines and platform-agnostic plan (2026-09-30)
 
-**Status:** assessment and plan only. Nothing here has been built. Stage 2 (the build) starts after
-Ceryce rules on the [decisions](#4-decisions-for-ceryce) at the end.
+**Status:** assessment and plan only. Nothing here has been built. Ceryce ruled on the
+[decisions](#4-decisions-for-ceryce) on 2026-09-30. D1–D8 and D10 went as recommended. **D9 is
+open**, pending the [`sync-claude-md` deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
+See [Rulings](#rulings-2026-09-30).
 
 **The ask:**
 
@@ -35,7 +37,12 @@ Ceryce rules on the [decisions](#4-decisions-for-ceryce) at the end.
   - an installer, which should grow out of the existing `zethus/install.py` (it already has a
     SHA-manifest, conflict-safe, uninstallable user-scope engine).
 - **Estimated stage 2 effort:** about 6–9 working days end to end with the recommended options, or
-  about 4–6 if the Zethus agent is not ported. See the [effort table](#35-effort).
+  about 4–6 if the Zethus agent is not ported. Add about 1 day if D9 retires `sync-claude-md` in
+  favour of a pointer lint. See the [effort table](#35-effort).
+- **`sync-claude-md` should probably go, not be renamed.** Every run on record wrote to a repo-root
+  `CLAUDE.md`, and 72% of the bytes it added were new detail rather than corrections. It stopped
+  running in July, yet the bloat kept growing, so the real fix is a rule about *where* detail lands,
+  plus a lint. See [Appendix A](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place).
 
 ---
 
@@ -485,7 +492,7 @@ working days, including tests and docs).
 | Retire the grimoire umbrella and promote mnemosyne to featured | S | D2 |
 | Mnemosyne hardening (§1.2 items 1–5) | M | D3 |
 | Commands → skills (3 left once morpheus is gone) | S | |
-| Neutralize amphion text and its config path (with fallback); rename or alias `sync-claude-md` without widening it | S–M | Rename is D9 |
+| Neutralize amphion text and its config path (with fallback); carry out the D9 outcome for `sync-claude-md` | S–M | D9 is open. The recommended retire + pointer lint + rule adds about 1 day net over the rename this row first assumed |
 | `catalog.json` + neutral agent, instructions and MCP layout | S | |
 | `install.py` core: generalize Zethus's engine, four host strategies, both scopes, manifest uninstall, merged-file blocks, host-CLI preference | L | The bulk of stage 2 |
 | Installer tests: 4 hosts × 2 scopes × install / re-run / edit / uninstall, with `PLATFORM` patched for 3 OSes | M | |
@@ -493,7 +500,7 @@ working days, including tests and docs).
 | Port Zethus to Claude, Codex and Cursor (agent transforms, instructions mapping, path rewrites) | M | D7; skip to save about 2 days |
 | Stage 2 verification of the §2.4 unknowns against real installs of each host | S–M | Needs each host installed locally |
 | Docs sweep: README, `AGENTS.md`, `docs/platforms.md`, per-bundle READMEs | S–M | |
-| **Total** | **about 6–9 days** | About 4–6 without the Zethus port |
+| **Total** | **about 6–9 days** | About 4–6 without the Zethus port. Add about 1 day if D9 goes with option 1 |
 
 **Sequencing:** first PR #36 (the rename) lands. Then:
 
@@ -511,6 +518,20 @@ Each step is its own PR into `develop`.
 ## 4. Decisions for Ceryce
 
 Each decision lists the recommended option first.
+
+### Rulings (2026-09-30)
+
+Ceryce, by Telegram at 16:46 CT, verbatim:
+
+> "Recs. Do a deeper dive on D9, we found a lot of context bloat from Claude.md files was coming from
+> that skill without much benefit. It was originally designed to keep all of the documentation in
+> sync, but it wasn't doing a good job at that."
+
+| Decision | Status |
+| --- | --- |
+| D1–D6, D8, D10 | **Ruled: recommended option** ("Recs.") |
+| D7 (multi-select) | **Ruled: the three recommended options** (1, 2 and 3) |
+| D9 | **Open.** The deep dive is [Appendix A](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place); D9 below now carries its options |
 
 ### D1: The fate of morpheus
 
@@ -580,12 +601,29 @@ Each decision lists the recommended option first.
 3. Leave both and rely on plugin namespacing. That only works for plugin installs, not for
    `~/.agents/skills`.
 
-### D9: `sync-claude-md` naming (its scope stays exactly as is)
+### D9: The fate of `sync-claude-md` (OPEN)
 
-1. **Rename it to `sync-agent-docs` and keep a `sync-claude-md` alias skill that points to it for
-   one release *(recommended)*.**
-2. Keep the name and only generalize the text to cover `AGENTS.md` and `copilot-instructions.md`.
-3. Rename it outright with no alias.
+The stage-1 draft treated this as a naming question. Ceryce asked for evidence first, and the
+[deep dive](#appendix-a-d9-deep-dive-does-sync-claude-md-earn-its-place) changes the
+recommendation. In short: across every run that can still be found, the skill mostly **added**
+text, always to a repo-root `CLAUDE.md`, and caught very little real drift.
+
+1. **Retire it and replace it with a mechanical check and a written rule *(recommended)*.**
+   - Delete both copies: amphion's, and the user-level one that actually runs.
+   - Ship a stdlib doc-pointer lint as a blocking CI step. It fails on links and backticked paths
+     that no longer resolve.
+   - Add a "leaf, not root" rule to `AGENTS.md` and to amphion's pipeline docs. It also bans
+     volatile state (statuses, counts, dates, phase lists) from any auto-loaded instruction file.
+   - Cost: S–M, about 1–2 days. Amphion drops to six skills.
+2. Retire it outright with nothing in its place. Cost: under half a day. It gives up nothing the
+   evidence shows it provided, but it leaves dangling pointers undetected and "where does the
+   detail go" unwritten.
+3. Rewrite it as a router-only pruner. It would only remove or relocate detail from a root to a
+   leaf and report drift, never add. Cost: M, about 2–3 days. The one pruning pass on record worked
+   but did not stick, and it hands an agent the power to delete context.
+4. Keep and rename it (the stage-1 recommendation): `sync-agent-docs` plus a one-release alias.
+   Cost: S. It ports to four hosts a skill whose measured yield was 3 real in-place fixes in 24
+   edits.
 
 ### D10: The repo's own maintainer guidance
 
@@ -675,3 +713,174 @@ tool summarized rather than verbatim.
 ### Agent Skills standard
 
 - [A1] <https://agentskills.io/specification>
+
+---
+
+## Appendix A: D9 deep dive: does `sync-claude-md` earn its place?
+
+Ceryce's premise: the skill caused a lot of the `CLAUDE.md` context bloat without much benefit, and
+it did not keep documentation in sync well. This appendix tests that premise against the skill
+text, the transcripts and git history, not against the skill's own description. The evidence
+**mostly confirms it, with one qualification that changes the fix.**
+
+### A.1 Method and limits
+
+- **Skill text:** both copies were read in full (§A.2).
+- **Transcripts:** all 10,008 local Claude Code session transcripts were scanned (6.2 GB).
+  - About 9,350 of them mention the skill's name, but only because it sits in every session's
+    skill listing. Only real invocations were counted: a `Skill` tool call or a
+    `/sync-claude-md` command.
+  - For each run, every `Edit` or `Write` to a `CLAUDE.md` or `AGENTS.md` was collected up to the
+    next genuine user prompt. Each of those edits was then classified by hand.
+- **Git history:** the private assistant repository's history of its eight `CLAUDE.md` files.
+  - This is the repo whose context-budget and countermeasure-binding specs measured context cost
+    and findability.
+  - Sizes are git-object bytes on its integration branch as of 2026-09-30.
+  - A "sync-labelled" commit is one whose message mentions a sync or `CLAUDE.md` pass. This is a
+    message heuristic.
+- **Tokens** use the assistant repo's measured **2.59 bytes/token**. Its spec found that the usual
+  4:1 estimate understates by about 1.55×.
+- **Limits:**
+  - Transcript retention is uneven: 9,785 of the files were last written in September. The run
+    count below is a floor, not a census.
+  - Everything here is aggregated. No private content is reproduced, and the repos other than
+    this one are not named.
+
+### A.2 What the skill actually tells the agent to do
+
+There are **two different skills with the same name**, and the one this repo ships is not the one
+that has been running.
+
+| | User-level copy (`~/.claude/skills/sync-claude-md/`, 2,811 B) | amphion copy (`amphion/plugin/skills/sync-claude-md/`) |
+| --- | --- | --- |
+| Trigger | After an implementation phase, or whenever files moved, "branches have been merged; deliverables have shipped; or decisions have been resolved" | Only when the current diff changed code that some document describes |
+| Scope | The client-folder, repo-level and workspace-root `CLAUDE.md`: **roots only**, never a sub-directory leaf | The document nominated by a `docSync.map` glob. Without config, the nearest `CLAUDE.md` or `README.md` up to the repo root |
+| What it maintains | Phase branch lists, "current contents" tables, active deliverables, open decisions and blockers, and the repo structure tree. **Four of the five are volatile state** | Only lines that the diff made factually wrong |
+| May it add? | Yes. The structure row said only "Add the new entries" until a 2026-09-05 patch changed it to "one-line pointer" and added a size-delta report | **No.** It rewrites in place, never appends, and reports gaps instead |
+
+**Does the design push content into root files?**
+
+- **The user-level copy does, by construction.** Every file in its scope is a root. It runs after
+  every phase, whatever the diff. Its instruction is to make each root "reflect actual current
+  state", and every phase changes that state. Growth is the expected output, not a misuse.
+- **The amphion copy does not.** It was narrowed for exactly these reasons (its "Why this skill is
+  narrow" section). But once narrowed, it is the author's global rule ("docs stay in sync with
+  code in the same change") restated as a skill, minus appending. The agent that makes a change is
+  already told to do everything it does.
+
+### A.3 Effect on real repos: the transcripts
+
+| Measure | Value |
+| --- | --- |
+| Runs found | **14**, between 2026-06-29 and 2026-07-17, across four repos: the assistant repo (8), this repo (2) and two other private project repos (4) |
+| Runs that edited anything | 10. The other 4 were no-ops |
+| Edits to instruction files | **24** |
+| … in a repo-root `CLAUDE.md` | **24 (100%)** |
+| … in a leaf, or a new leaf created | **0** |
+| Net bytes added to roots | **+6,438 B, about 2,500 tokens.** This loads into every later session in those repos |
+| Runs after 2026-07-17 | **0**, although the skill's ~300 B listing entry was in about 9,800 September sessions |
+
+Each of the 24 edits, classified by hand:
+
+| What the edit did | Edits | Net bytes |
+| --- | ---: | ---: |
+| **Fixed drift in place, without growing.** A tool count ("nine tools" → "ten"), a renamed test file, and a test count. The test count was a number an earlier sync run had written into the root itself | **3** | −14 |
+| Corrected a statement that had become false, but grew it while doing so. Examples: a dependency claim, a transport description, a list of supported sites | 8 | +1,800 |
+| **Added new detail:** feature paragraphs, directory-listing lines, dated "shipped" notes, a test count "as of" a date | **13** | **+4,652 (72%)** |
+
+**Verdict on "not doing a good job":** confirmed. One edit in eight was a clean in-place fix. Most
+of the output was new root content, including the volatile numbers that later needed their own
+"fix".
+
+### A.4 Effect on real repos: the assistant repo's git history
+
+- **Sync passes only ever grew the root.**
+  - 21 of the 555 non-merge commits that touch a `CLAUDE.md` are sync-labelled.
+  - Before the 2026-09-05 patch, the 14 sync-labelled commits that touched the root added
+    **+19,335 B (about 7,500 tokens)** and removed **0 B**. Not one of them made it smaller.
+- **But they were not the main producer.** Those 19 KB are about **12%** of the root's gross growth
+  in that period (+157.8 KB). Ordinary feature commits carried the rest, each one documenting
+  itself in the root.
+- **The repo's own context-budget spec reaches the same split:**
+  - "Who writes it: the feature commits themselves, not a separate sync pass."
+  - It names three host-side instructions: the old global "run `/sync-claude-md`" line, the global
+    same-change rule (which it calls "the real producer"), and the skill's "Add the new entries"
+    row (which it calls "the specific instruction that produced" the growth history).
+  - "None of the three says a word about *where* the detail should land."
+  - "137 merges touched the two big grounding files. 137 made them bigger. Zero made them smaller."
+- **Root timeline:** 5.4 KB (06-28) → 29.2 KB (07-15) → **118.5 KB** (08-01) → trimmed to 29.8 KB
+  (08-15) → 37.9 KB (09-30). The current size is over its own budget.
+- **The growth moved down a level; it did not stop.**
+  - The "put the detail in the leaf, not the root" rule landed on 2026-09-05, together with two
+    one-off router rewrites that cut the sub-directory `CLAUDE.md` files from 365 KB to 59.8 KB.
+  - By 09-30 those same files were back to **223.0 KB**, and one of them is 158 KB.
+  - The skill did not run once in that period.
+  - Nested `CLAUDE.md` files are auto-loaded instruction files too, so moving the detail into them
+    moved the cost; it did not remove it.
+
+### A.5 Did the added text buy findability?
+
+A correction to the premise first. The **0 findability score** was measured on the assistant
+repo's *docs router*, a nested `CLAUDE.md` that lists every spec. It was not measured on the root.
+Both results point the same way:
+
+- **The docs router was almost never loaded.** It loaded on 4 of 9,260 instruction-load events
+  between 2026-08-05 and 08-26 (0.043%). The root loaded on 5,863 (63%).
+  - A nested `CLAUDE.md` loads only when a file in its own directory is `Read`, and `grep` never
+    triggers it.
+- **It scored 0 on each of six words a searcher would actually type.**
+- **Its byte budget never bound:** "39 raise requests, 39 grants, 0 refusals".
+
+So text added to roots was expensive, because the root loads every session. Text added to routers
+was largely not found. Neither bought much. And a size budget that is raised on request is not a
+control, so it should not be ported.
+
+### A.6 Measured against the standing rule
+
+The rule: docs stay in sync **in the same change**; "Put the detail in the leaf, not the root … A
+repo-root `CLAUDE.md` is a router: it says what exists and where to look, not how it works."
+
+| Clause | User-level copy | amphion copy |
+| --- | --- | --- |
+| Same change | **No.** It is a separate pass after a phase, often its own commit. The assistant repo has 14 commits that touch only `CLAUDE.md` files | Yes. It is diff-gated |
+| Detail in the leaf | **No.** Its scope is roots only, and 0 of the 24 edits touched a leaf | Neutral. It adds nothing anywhere |
+| Root is a router, not "how it works" | **No.** Four of its five maintained sections are status or history | Neutral |
+| Add to the root only when no pointer reaches it | Only for the structure row, and only since 09-05 | Never adds |
+
+The amphion copy complies, but it duplicates the rule. The user-level copy contradicts it. And
+neither is what actually stops bloat. The rule decides where text lands, and nothing checks that.
+
+### A.7 What a mechanical check would and would not catch
+
+- **The three clean fixes:**
+  - The renamed test file is a dangling pointer, which a lint catches.
+  - The tool count and the test count are volatile numbers. The proposed rule keeps those out of
+    instruction files entirely, so there would be nothing to drift.
+- **The eight grow-while-correcting edits** fixed behaviour descriptions. A lint cannot see those.
+  The same-change rule already obliges the agent that changed the behaviour to fix them.
+- **Prior art: the assistant repo's `check_context_pointers.py`.**
+  - It is stdlib only: about 700 lines plus about 600 lines of tests.
+  - It resolves each link or backticked path against the doc's directory, its ancestors, the
+    tracked files and `.gitignore`, with a reasons-required allowlist.
+  - It blocks in CI.
+  - Its naive first version had **2.6% precision** (2 real findings of 77). 76 standing findings
+    had to be cleared before it could block. A generic port should budget for that resolution
+    logic from day one.
+
+### A.8 Options
+
+| Option | Cost | What the evidence says |
+| --- | --- | --- |
+| **1. Retire + pointer lint + "leaf, not root" rule *(recommended)*** | S–M, about 1–2 days | Retiring loses about 3 clean fixes per 24 edits, and a lint catches the pointer class among them. The rule targets the real producer (§A.4). A lint is cheap to keep green and cannot append |
+| 2. Retire, nothing in its place | Under half a day | Loses nothing measured, but leaves dangling pointers unchecked and "where does detail go" unwritten, which is the gap the assistant repo's spec identified |
+| 3. Router-only pruner (remove or relocate, report, never add) | M, about 2–3 days | The one pruning pass on record cut 365 KB to 60 KB, and growth rebuilt 223 KB within 25 days. Pruning without stopping the producer is a treadmill. It also gives an agent standing permission to delete context. Better as an occasional pass on request, which needs no skill |
+| 4. Keep and rename (the stage-1 recommendation) | S | This ports a 12%-yield skill to four hosts under a new name. It keeps two diverging copies alive unless the user-level one is also removed |
+
+**Whichever option is chosen, two host-side follow-ups apply.** Neither is a change to this repo:
+
+1. **Delete the user-level copy.** It is the one that ran, and it is still in every session's
+   skill listing.
+2. **Tighten the global rule's definition of "leaf".** The detail belongs in a document that is
+   not auto-loaded, such as a spec, a README or a docstring. A nested `CLAUDE.md` is a router too.
+   The 09-05 rule counted the sub-directory's own `CLAUDE.md` as a leaf, and that is where the
+   growth went (§A.4).
