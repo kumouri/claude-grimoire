@@ -179,5 +179,5 @@ the `[mcp]` extra).
 
 ---
 
-Part of [claude-grimoire](../README.md) — a collection of standalone Claude Code artifacts.
+Part of [mesmer-grimoire](../README.md) — a collection of standalone Claude Code artifacts.
 Apache-2.0 licensed.

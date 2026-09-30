@@ -60,13 +60,13 @@ the next reader knows why not to widen it back.
 `.claude/skills/` inside one project:
 
 ```bash
-git clone https://github.com/kumouri/claude-grimoire.git
-cp -r claude-grimoire/amphion/plugin/skills/* ~/.claude/skills/
+git clone https://github.com/kumouri/mesmer-grimoire.git
+cp -r mesmer-grimoire/amphion/plugin/skills/* ~/.claude/skills/
 ```
 
 ```powershell
-git clone https://github.com/kumouri/claude-grimoire.git
-Copy-Item claude-grimoire\amphion\plugin\skills\* $HOME\.claude\skills\ -Recurse
+git clone https://github.com/kumouri/mesmer-grimoire.git
+Copy-Item mesmer-grimoire\amphion\plugin\skills\* $HOME\.claude\skills\ -Recurse
 ```
 
 Take a subset if you want one — each skill folder is self-contained. Cross-references between

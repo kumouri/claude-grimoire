@@ -1,9 +1,11 @@
-# CLAUDE.md — claude-grimoire
+# CLAUDE.md — mesmer-grimoire
 
 ## What this repo is
 
-A personal collection ("grimoire") of standalone **Claude Code** artifacts — skills, hooks,
-slash commands, and subagents — that don't belong to any other project. It exists to showcase
+A personal collection ("grimoire") of standalone AI-agent artifacts — **Claude Code** skills,
+hooks, slash commands, and subagents, plus a **GitHub Copilot** kit (`zethus/`) — that don't
+belong to any other project. Renamed from `claude-grimoire` on 2026-09-30 because it is no
+longer Claude-specific; `scripts/check_identifiers.py` rejects URLs that still use the old name. It exists to showcase
 this work on Ceryce's portfolio, so each artifact should be self-contained, documented, and
 presentable.
 
@@ -95,8 +97,8 @@ drive new recall dimensions through config axes rather than hardcoding them, and
 Every byte committed here is published. `scripts/check_identifiers.py` is a **blocking** CI
 step (in the `Python tests` job) that rejects machine-specific identifiers in tracked files:
 Windows user-profile paths, other drive-absolute paths, POSIX home directories, WSL drive
-mounts, this project's GitHub URL under an org other than `kumouri`, and email addresses
-outside a small justified allowlist.
+mounts, this project's GitHub URL under an org other than `kumouri` or under its retired
+`claude-grimoire` name, and email addresses outside a small justified allowlist.
 
 ```bash
 python scripts/check_identifiers.py
