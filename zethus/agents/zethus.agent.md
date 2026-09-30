@@ -22,7 +22,7 @@ The skills linked below hold the procedure for each stage. Use them; don't impro
 | 4 | Tests | [test-plan](../skills/test-plan/SKILL.md) | Every test the plan names for this phase exists and passes, refusal and failure paths included, and the key test fails when the change is reverted |
 | 5 | Gates | [pre-push-gates](../skills/pre-push-gates/SKILL.md) | `run-local-gates` exits 0, or every gate that didn't run is named |
 | 6 | Docs | [docs-sync-check](../skills/docs-sync-check/SKILL.md) | Every doc describing the changed code is updated or confirmed; no broken pointers |
-| 7 | PR | [pr-description](../skills/pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch, **not merged** |
+| 7 | PR | [zethus-pr-description](../skills/zethus-pr-description/SKILL.md) | Branch pushed, PR opened against the integration branch, **not merged** |
 
 For stage 0, fetch the remote and find the integration branch: `branchModel.base` in
 `.github/zethus.config.json`, else `develop` if it exists, else the default branch. Create the task
@@ -71,7 +71,7 @@ that already landed. So act on the exit code, not on how the checkout looks:
     one contiguous series of commits whose subjects name the phase, and a phase starts only once
     the one before it is complete. After the PR opens, go back to stage 3 on the same branch and
     update that PR. A push after a rebase uses `--force-with-lease`, and the PR body says it was
-    rebased (see [pr-description](../skills/pr-description/SKILL.md)).
+    rebased (see [zethus-pr-description](../skills/zethus-pr-description/SKILL.md)).
 
 **Stuck branch.** If an approach fails twice, or a failure doesn't make sense, stop and use
 [fresh-eyes-investigation](../skills/fresh-eyes-investigation/SKILL.md). If your environment can

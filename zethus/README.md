@@ -50,7 +50,7 @@ merges, only on green. One narrow exemption is written down too. A change with n
 | [`skills/implement-phase`](skills/implement-phase/SKILL.md) | `.github/skills/` | One phase per branch (or per commit series, in `rebase` style), Phase 0 first. Stay inside the phase; classify anything unplanned; keep an *As built* list. |
 | [`skills/test-plan`](skills/test-plan/SKILL.md) | `.github/skills/` | Per-phase tests covering the change, the failure path, the refusal, and what must not change, plus a mutation check. |
 | [`skills/pre-push-gates`](skills/pre-push-gates/SKILL.md) | `.github/skills/` | Every CI gate run locally, on the working tree, before a push. A skip is not a pass. |
-| [`skills/pr-description`](skills/pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
+| [`skills/zethus-pr-description`](skills/zethus-pr-description/SKILL.md) | `.github/skills/` | An evidence-first PR body diffed against the real integration branch, including *What was not checked*. |
 | [`skills/docs-sync-check`](skills/docs-sync-check/SKILL.md) | `.github/skills/` | Fix the docs that describe the changed code in the same PR, in place. Leave every other doc alone. |
 | [`templates/spec-full.md`](templates/spec-full.md) · [`spec-minimum.md`](templates/spec-minimum.md) | `.github/zethus/templates/` | Both spec shapes. The minimum spec's headings are a strict subset of the full spec's, so promoting one only adds sections. A test enforces this. |
 | [`templates/adr.md`](templates/adr.md) | `.github/zethus/templates/` | The ADR record: a field table (including *Enforced where*), decision, context, options, consequences. |
@@ -98,6 +98,10 @@ installs the rules as `.github/instructions/zethus.instructions.md` with `applyT
 combines path-specific and repository-wide instructions, so both apply. Copying by hand works too:
 the *Installs to* column above is the whole mapping.
 
+Repo mode never deletes anything. If you are upgrading a repo from a kit where the PR skill was
+called `pr-description`, delete `.github/skills/pr-description/` in the same PR, unless it is
+Amphion's skill of that name. User mode removes files that left the kit by itself.
+
 ### Install for your user account (every repo, no commit)
 
 ```bash
@@ -127,7 +131,7 @@ from any repo.
 The user install is careful about your files:
 
 - **A file it didn't write is never overwritten**, even with `--force`. If you already have a
-  `~/.copilot/skills/pr-description/`, for example, it stops, lists the clash, and writes nothing.
+  `~/.copilot/skills/zethus-pr-description/`, for example, it stops, lists the clash, and writes nothing.
 - Every file it writes is recorded with its SHA-256 in `~/.copilot/zethus/install-manifest.json`.
   Re-running it upgrades the files you haven't edited. A kit file you *have* edited is a conflict
   unless you pass `--force`.
@@ -270,14 +274,14 @@ The keys are the same in every location.
 
 | Key | Used by | Meaning |
 |---|---|---|
-| `branchModel.base` | agent, `pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
-| `branchModel.style` | agent, `implement-phase`, `pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
+| `branchModel.base` | agent, `zethus-pr-description`, `docs-sync-check`, `base-freshness` | The integration branch. Default: `develop` if it exists, else the default branch. |
+| `branchModel.style` | agent, `implement-phase`, `zethus-pr-description`, `base-freshness` | `"branch-per-change"` (default): a new branch per change, cut from the freshly fetched base, one branch and PR per phase. `"rebase"`: one long-lived branch kept rebased onto the base; phases are commit series on it, every diff is taken against the merge-base with `origin/<base>`, and the PR body says when the branch was rebased. See [Branch models](#branch-models). |
 | `branchModel.maxBehind` | `base-freshness`, agent, `pre-push-gates` | How many commits the branch may be behind `origin/<base>` before a stage refuses to start. Default `0`: any commit behind means rebase first. |
 | `gates.steps[]` | `run-local-gates` | Ordered `{name, command, exitCode?}`. `command` is a string or an argv list; there's no shell. |
 | `gates.lint` / `.build` / `.test` / `.mandatedChecks[]` | `run-local-gates` | Amphion's gate keys, read when `gates.steps` is absent. A mandated check with only a prose `expect` shows as **MANUAL** (not checked). |
 | `spec.dir`, `spec.templates.{full,minimum}` | `new-spec` | Default `docs/specs`, and the kit's templates. |
 | `adr.dir`, `adr.template` | `new-adr` | Default `docs/adr`, and the kit's template. |
-| `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. It is Amphion's key. Globs use `fnmatch` rules, so `*` also matches `/`. |
+| `docSync.map[]` | `docs-pointer-check --sync-base` | `{doc, describes[globs]}`: which code each doc describes. Globs use `fnmatch` rules, so `*` also matches `/`. |
 | `docs.pointerIgnore[]` | `docs-pointer-check` | Markdown files to skip, such as generated changelogs. |
 | `commits.aiTrailer` | agent | The co-author trailer that AI-assisted commits carry. |
 
@@ -428,11 +432,11 @@ the OAuth2/OIDC auth-replacement phase itself.
 
 ## How it relates to Amphion
 
-[Amphion][amphion] is a spec-to-PR pipeline of seven Markdown skills for Claude Code. Zethus uses
+[Amphion][amphion] is a spec-to-PR pipeline of six Markdown skills for Claude Code. Zethus uses
 the same design where they overlap, rather than duplicating it:
 
-- **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`,
-  `docSync.map`) mean the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
+- **One config vocabulary.** The keys that exist in both (`gates.*`, `branchModel.base`) mean
+  the same thing. `branchModel.style` and `branchModel.maxBehind` are Zethus's
   own; Amphion ignores them. When no Zethus config is found in the repo, the scripts read
   `.claude/amphion.config.json`, so a repo using both answers each question once.
 - **Different stages.** Amphion covers what happens *after* the decisions: loading decided
@@ -441,13 +445,14 @@ the same design where they overlap, rather than duplicating it:
   assumes already happened: research, specs, ADRs and fresh-eyes investigation. It also covers the
   enforcement, which Amphion leaves to the operator. `implement-phase` points to Amphion's two
   exception handlers rather than re-implementing them.
-- **Shared headings.** Zethus's `pr-description` keeps Amphion's *Not in this PR (intentional)*
+- **Shared headings.** Zethus's `zethus-pr-description` keeps Amphion's *Not in this PR (intentional)*
   and *Noticed but out of scope* headings, so `flag-or-fix` deferrals land in the same place.
-  `docs-sync-check` follows the same narrow rule as Amphion's `sync-claude-md`: change only the
-  docs that describe code this diff touched, in place.
+  `docs-sync-check` keeps the narrow rule Amphion's retired `sync-claude-md` followed: change
+  only the docs that describe code this diff touched, in place.
 - **Installing both.** Amphion's skills use the same `SKILL.md` format, and Copilot can load
-  them. If you copy them into `.github/skills/` too, skip Amphion's `pr-description`: Zethus's
-  version adds to it (evidence, what was not checked, decisions) and has the same name.
+  them. The two PR skills have different names, so both can be installed side by side:
+  `zethus-pr-description` is Amphion's `pr-description` plus evidence, what was not checked, and
+  decisions. Pick one per repo so the agent doesn't have to choose.
 
 ## Jira integration
 

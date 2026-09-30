@@ -1,5 +1,5 @@
 ---
-name: pr-description
+name: zethus-pr-description
 description: Write a pull request description with evidence — what and why, linked spec and ADRs, the local gate table, tests and what they prove, what was NOT checked, deliberate deferrals, and decisions needed from the reviewer — diffed against the repo's real integration branch. Use when opening or updating a PR, or when asked to summarize a branch for review.
 ---
 
