@@ -260,7 +260,7 @@ def check_code_span(path: str, is_dir: bool, md_rel: str, tree: Tree) -> str | N
         resolved = normalize(base, path)
         if resolved is not None and tree.has(resolved, want_dir=is_dir):
             return None
-    if not path.startswith(".") and path in tree.suffixes:
+    if not path.startswith(("./", "../")) and path in tree.suffixes:
         return None
     for base in bases:
         resolved = normalize(base, path)

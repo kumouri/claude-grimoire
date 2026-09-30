@@ -12,6 +12,7 @@ import check_doc_pointers as cdp
 FILES = {
     "README.md",
     "AGENTS.md",
+    "amphion/plugin/.claude-plugin/plugin.json",
     "docs/guide.md",
     "mnemosyne/README.md",
     "mnemosyne/src/mnemosyne/stores.py",
@@ -102,6 +103,12 @@ class TestCodeSpans(unittest.TestCase):
 
     def test_tail_of_a_tracked_path_resolves(self):
         self.assertEqual(found("federation lives in `src/mnemosyne/stores.py`"), [])
+        self.assertEqual(found("`.claude-plugin/plugin.json`"), [])
+        self.assertEqual(found("`.claude-plugin/marketplace.json`"),
+                         ["`.claude-plugin/marketplace.json`"])
+
+    def test_explicitly_relative_paths_are_not_matched_by_tail(self):
+        self.assertEqual(found("`./stores.py`"), ["`./stores.py`"])
 
     def test_ancestor_directories_are_tried(self):
         self.assertEqual(found("`src/mnemosyne/stores.py`", "mnemosyne/README.md"), [])
