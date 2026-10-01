@@ -30,10 +30,22 @@ plugin**, and an **MCP server** — all over the same engine.
 
 Pick whichever surface fits — they all drive the same git-backed store.
 
+Mnemosyne is **not published on PyPI yet**, so `pip install mnemosyne-reflexion` will not find it.
+Install the package straight from this repository instead (Python 3.8+, no runtime dependencies):
+
+```bash
+pip install "git+https://github.com/kumouri/mesmer-grimoire#subdirectory=mnemosyne"
+
+# with the MCP server's optional dependency:
+pip install "mnemosyne-reflexion[mcp] @ git+https://github.com/kumouri/mesmer-grimoire#subdirectory=mnemosyne"
+```
+
+Append `@v<tag>` to the repository URL (before `#subdirectory`) to pin a release. From a clone,
+`pip install ./mnemosyne` (or `pip install -e ./mnemosyne` to hack on it) does the same.
+
 **1. CLI / Python library** (the foundation)
 
 ```bash
-pip install mnemosyne-reflexion          # or: pip install "mnemosyne-reflexion[mcp]" for the MCP server
 mnemosyne --repo ./my-memory init --example software-eng
 ```
 
@@ -44,10 +56,12 @@ mn.recall("migrating the ledger POST endpoint", stage="plan")
 
 **2. Claude Code plugin** — a skill + hooks (auto-recall on each prompt, sync on session start) +
 `/recall`, `/reflect`, `/promote` commands. Install the `mnemosyne` plugin from this repo, then set
-`MNEMOSYNE_REPO` to your memory repo. (The plugin's hooks call the `mnemosyne` CLI, so
-`pip install mnemosyne-reflexion` first.)
+`MNEMOSYNE_REPO` to your memory repo. (The plugin's hooks import the `mnemosyne` package and its
+commands run the `mnemosyne` CLI, so install it as above first.)
 
-**3. MCP server** — the same operations as MCP tools for any MCP client:
+**3. MCP server** — the same operations as MCP tools for any MCP client (install with the `[mcp]`
+extra, as above). Its `promote` tool takes the same options as the CLI command: one or more ids, a
+destination tier, and `push`.
 
 ```bash
 claude mcp add mnemosyne -e MNEMOSYNE_REPO=/path/to/memory-repo -- python -m mnemosyne.mcp_server
@@ -114,7 +128,7 @@ a git `url` (auto-cloned) or a `path` to an existing repo:
 | `recall` | Context in → ranked, budgeted lesson digest out (the hot path). |
 | `capture` / `add` | Save a decision/convention/… to the local tier. |
 | `reflect` | Save a learned-from-failure lesson (needs `--reflection-of`). |
-| `promote <id…>` | Promote local lesson(s) to shared, or `--to <tier>` / `--from-file <manifest>` to export up to a store. |
+| `promote <id…>` | Promote local lesson(s) to shared, or `--to <tier>` / `--from-file <manifest>` to export up to a store. Prints the git steps that stage the review PR; `--push` runs them (branch, commit, push). |
 | `sync` | `git pull` the shared memory + every configured store; retire exported-then-approved originals. |
 | `stores` | List configured shared stores (broader tiers) + their clone/pull status. |
 | `render` | Regenerate `memory/LESSONS.md` from the JSONL. |
@@ -137,7 +151,7 @@ Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), 
 
 ```
 mnemosyne/
-├── pyproject.toml                 # PyPI package (console script + [mcp] extra)
+├── pyproject.toml                 # package metadata (console script + [mcp] extra; not on PyPI yet)
 ├── src/mnemosyne/
 │   ├── core.py                    # the engine (axis-driven scorer, hygiene, git, export/sync)
 │   ├── stores.py                  # federation: clone/pull stores + federated load across tiers
@@ -154,6 +168,11 @@ mnemosyne/
 
 `memory/local.jsonl` and `memory/usage.local.json` are per-developer and gitignored; only
 `memory/lessons.jsonl` (+ the generated `LESSONS.md`) is committed and shared.
+
+Every save is **atomic**: the engine writes a temp file beside the target, fsyncs it, and swaps it
+in with `os.replace`, so a process that dies mid-save leaves the previous store intact rather than
+a truncated one. A crash can at worst leave a stray `memory/.*.tmp`, which is gitignored and safe
+to delete.
 
 ## Tiers & transparency
 
@@ -172,6 +191,7 @@ relayed verbatim. Memory is never applied silently and never shared unreviewed.
 
 ```bash
 PYTHONPATH=src python -m mnemosyne selftest     # zero-dep test suite
+python -m unittest tests.test_mnemosyne         # from the repo root: selftest + crash-safety + promote tests
 ```
 
 The engine has no runtime dependencies; only the MCP server needs the `mcp` package (installed via
@@ -179,5 +199,5 @@ the `[mcp]` extra).
 
 ---
 
-Part of [mesmer-grimoire](../README.md) — a collection of standalone Claude Code artifacts.
+Part of [mesmer-grimoire](../README.md) — a collection of standalone AI coding-agent artifacts.
 Apache-2.0 licensed.

@@ -243,23 +243,25 @@ def _load_manifest(path):
     return groups
 
 
-def _print_shared_promote(cfg, repo, res, push):
-    print(f"PROMOTED: {res['id']} moved local -> shared and marked review=proposed — \"{res['title']}\".")
-    branch = res["branch"]
-    if res["is_git"]:
-        if push:
-            core.git(repo, "checkout", "-b", branch)
-            core.git(repo, "add", "memory/lessons.jsonl", "memory/local.jsonl", "memory/LESSONS.md")
-            core.git(repo, "commit", "-m", f"reflexion: promote {res['id']} — {res['title']}")
-            rc, _, err = core.git(repo, "push", "-u", "origin", branch)
-            print(f"  pushed branch {branch}" if rc == 0 else f"  push failed: {err}")
-            print(f"  open the PR: gh pr create --fill --head {branch}")
+def _print_pr(pr, push, header, where=""):
+    """Print the engine's stage_review_pr report: the push outcome, or the steps to run by hand."""
+    if push:
+        if pr["pushed"]:
+            print(f"  pushed branch {pr['branch']}{where}")
+            print(f"  open the PR: gh pr create --fill --head {pr['branch']}")
         else:
-            print("  Stage the review PR (PR-reviewed promotion gate):")
-            print(f"    git -C \"{repo}\" checkout -b {branch}")
-            print(f"    git -C \"{repo}\" add memory/lessons.jsonl memory/local.jsonl memory/LESSONS.md")
-            print(f"    git -C \"{repo}\" commit -m \"reflexion: promote {res['id']} — {res['title']}\"")
-            print(f"    git -C \"{repo}\" push -u origin {branch} && gh pr create --fill --head {branch}")
+            print(f"  {pr['error']}")  # e.g. "git push failed: <stderr>"
+    else:
+        print(header)
+        for cmd in pr["commands"]:
+            print(f"    {cmd}")
+
+
+def _print_shared_promote(res, push):
+    print(f"PROMOTED: {res['id']} moved local -> shared and marked review=proposed — \"{res['title']}\".")
+    if res["pr"]["is_git"]:
+        _print_pr(res["pr"], push, "  Stage the review PR (PR-reviewed promotion gate):")
+        if not push:
             print("  (a human reviewer approves before it becomes team-wide truth)")
     else:
         print("  note: not a git repo yet — `git init` the memory repo to enable PR promotion.")
@@ -277,23 +279,11 @@ def _print_export(res, push):
         print(f"  local originals kept + marked proposed; they retire automatically on `sync` once merged upstream.")
     for sk in res.get("skipped", []):
         print(f"  skipped {sk['id']}: {sk['reason']}")
-    store_repo, branch = res.get("store_repo"), res.get("branch")
-    if exported and store_repo and branch:
-        add = ["memory/lessons.jsonl", "memory/LESSONS.md"]
-        if res.get("is_git"):
-            if push:
-                core.git(Path(store_repo), "checkout", "-b", branch)
-                core.git(Path(store_repo), "add", *add)
-                core.git(Path(store_repo), "commit", "-m", f"reflexion: export to {tier} ({branch})")
-                rc, _, err = core.git(Path(store_repo), "push", "-u", "origin", branch)
-                print(f"  pushed branch {branch} in the {tier} store" if rc == 0 else f"  push failed: {err}")
-                print(f"  open the PR: gh pr create --fill --head {branch}")
-            else:
-                print(f"  Stage the review PR in the '{tier}' store repo:")
-                print(f"    git -C \"{store_repo}\" checkout -b {branch}")
-                print(f"    git -C \"{store_repo}\" add {' '.join(add)}")
-                print(f"    git -C \"{store_repo}\" commit -m \"reflexion: export to {tier} ({branch})\"")
-                print(f"    git -C \"{store_repo}\" push -u origin {branch} && gh pr create --fill --head {branch}")
+    pr = res.get("pr")
+    if exported and pr:
+        if pr["is_git"]:
+            _print_pr(pr, push, f"  Stage the review PR in the '{tier}' store repo:",
+                      where=f" in the {tier} store")
         else:
             print(f"  note: the {tier} store is not a git repo — `git init` it to enable PR promotion.")
 
@@ -312,7 +302,7 @@ def cmd_promote(cfg, repo, args):
     for g in groups:
         tier, ids = g["tier"], g["lessons"]
         try:
-            res = core.export(cfg, repo, ids, tier)
+            res = core.export(cfg, repo, ids, tier, push=args.push)
         except core.EngineError as e:
             print(f"error: {e}", file=sys.stderr)
             return getattr(e, "code", 2)
@@ -325,7 +315,7 @@ def cmd_promote(cfg, repo, args):
     for res in results:
         if res.get("same_repo"):
             for r in res["results"]:
-                _print_shared_promote(cfg, repo, r, args.push)
+                _print_shared_promote(r, args.push)
         else:
             _print_export(res, args.push)
     return 0

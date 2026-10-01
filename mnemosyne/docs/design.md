@@ -92,6 +92,12 @@ and stages a PR. A reviewer approves before it becomes team-wide, so one bad les
 poison everyone — the cost of a wrong shared lesson is high (it steers every future run), so it
 gets a human gate. Agent proposes, human disposes.
 
+Staging lives in the engine (`core.stage_review_pr`), not in any one surface, so the CLI, the MCP
+`promote` tool and `mn.promote()` behave identically: each returns the git steps that stage the
+review PR (branch, add, commit, push), and with `push` set runs them, stopping at the first failing
+step. Only the committed files are staged; `local.jsonl` is gitignored by design. Nothing in the
+engine opens or merges the PR.
+
 **Broader tiers (federation).** Beyond its own local+shared tiers, a repo can federate with
 additional **stores** — separate mnemosyne memory repos declared in `config.stores`, each a broader
 shared tier (e.g. `team`, `enterprise`). A store is addressed by a git **url** (mnemosyne clones it
@@ -110,6 +116,15 @@ Usage tracking always writes to the primary gitignored sidecar; stores are read-
 Lessons are authored **only through the engine** — never hand-edited — which keeps ids, stamps,
 dedup, supersession, and the rendered view consistent. `mnemosyne validate` enforces the schema
 and spine consistency.
+
+**Crash-safe writes.** Every rewrite of a store file (`lessons.jsonl`, `local.jsonl`, the usage
+sidecar, `LESSONS.md`) goes through `core.atomic_write_text`: write a temp file in the same
+directory, `fsync` it, then `os.replace` it over the original (and, on POSIX, `fsync` the directory
+so the rename itself survives a power cut). `os.replace` is atomic within one filesystem, so a
+process killed mid-save leaves either the old file or the new one, never a truncated store. On
+Windows a concurrent reader briefly holding the file open blocks the swap, so the replace retries a
+few times. Atomicity does not serialise writers: two processes rewriting the same file at once can
+still lose one update (last writer wins), though neither can corrupt the file.
 
 **Thin by design.** The agent never reads the store. It runs one command and relays the one-line
 result. All scanning, ranking, writing, git work, and validation live in the engine, keeping the

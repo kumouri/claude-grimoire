@@ -1,19 +1,30 @@
 """CI coverage for the mnemosyne reflexion-memory engine.
 
-Wraps mnemosyne's own zero-dependency self-test into the repo unittest suite, plus a couple of
-lightweight checks that the bundled configs load and the public API round-trips on a temp repo.
+Wraps mnemosyne's own zero-dependency self-test into the repo unittest suite, plus checks that the
+bundled configs load, the public API round-trips on a temp repo, a save that dies mid-write leaves
+the old store intact, `promote` stages (and with push, pushes) the same review PR from every
+surface, and the plugin no longer registers the dead SessionEnd nudge.
 """
 from __future__ import annotations
 
+import importlib
+import inspect
 import io
+import json
+import os
+import subprocess
 import sys
 import tempfile
+import textwrap
+import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parent.parent
 MNEMOSYNE_SRC = REPO / "mnemosyne" / "src"
+PLUGIN_HOOKS = REPO / "mnemosyne" / "plugin" / "hooks"
 
 if str(MNEMOSYNE_SRC) not in sys.path:
     sys.path.insert(0, str(MNEMOSYNE_SRC))
@@ -57,6 +68,212 @@ class PublicApiRoundTrip(unittest.TestCase):
 
             hits = mn.recall("how should we do a risky rollout?", repo=d)
             self.assertTrue(any(h["id"] == saved["id"] for h in hits))
+
+
+def _lesson(i):
+    return {"id": f"L-{i:04d}", "title": f"lesson {i}", "lesson": "x" * 200}
+
+
+class AtomicWrites(unittest.TestCase):
+    """A save that fails part-way must leave the previous store byte-for-byte intact."""
+
+    def setUp(self):
+        from mnemosyne import core
+
+        self.core = core
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self._tmp.name) / "memory" / "lessons.jsonl"
+        core.write_jsonl(self.store, [_lesson(i) for i in range(1, 4)])
+        self.before = self.store.read_bytes()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _assert_old_store_survives(self):
+        self.assertEqual(self.store.read_bytes(), self.before)
+        self.assertEqual([p.name for p in self.store.parent.iterdir()], ["lessons.jsonl"],
+                         "the failed save left a temp file behind")
+        self.assertEqual(len(self.core.read_jsonl(self.store)), 3)
+
+    def test_crash_mid_write_keeps_old_store(self):
+        real_fdopen = os.fdopen
+
+        def torn_fdopen(fd, *args, **kwargs):
+            fh = real_fdopen(fd, *args, **kwargs)
+            real_write = fh.write
+
+            def write(text):
+                real_write(text[: len(text) // 2])  # half the bytes land, then the "crash"
+                raise OSError("simulated crash mid-write")
+
+            fh.write = write
+            return fh
+
+        with patch.object(self.core.os, "fdopen", torn_fdopen):
+            with self.assertRaises(OSError):
+                self.core.write_jsonl(self.store, [_lesson(i) for i in range(1, 50)])
+        self._assert_old_store_survives()
+
+    def test_failure_before_the_swap_keeps_old_store(self):
+        for target in ("fsync", "replace"):
+            with self.subTest(failing=target):
+                with patch.object(self.core.os, target, side_effect=OSError(f"simulated {target} failure")):
+                    with self.assertRaises(OSError):
+                        self.core.write_jsonl(self.store, [_lesson(9)])
+                self._assert_old_store_survives()
+
+    def test_process_killed_mid_save_keeps_old_store(self):
+        # A real crash runs no cleanup: kill the child after the new bytes are written but before
+        # the swap. The old store must still be whole; only a gitignored temp file may remain.
+        child = textwrap.dedent(f"""
+            import os, sys
+            sys.path.insert(0, {str(MNEMOSYNE_SRC)!r})
+            from pathlib import Path
+            from mnemosyne import core
+            core.os.fsync = lambda fd: os._exit(9)
+            core.write_jsonl(Path({str(self.store)!r}),
+                             [{{"id": "L-%04d" % i, "lesson": "y" * 200}} for i in range(1, 500)])
+        """)
+        proc = subprocess.run([sys.executable, "-c", child], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 9, proc.stderr)
+        self.assertEqual(self.store.read_bytes(), self.before)
+        leftovers = [p.name for p in self.store.parent.iterdir() if p.name != "lessons.jsonl"]
+        self.assertTrue(all(n.startswith(".lessons.jsonl.") and n.endswith(".tmp") for n in leftovers),
+                        leftovers)
+
+    def test_successful_save_replaces_content(self):
+        self.core.write_jsonl(self.store, [_lesson(7)])
+        self.assertEqual([l["id"] for l in self.core.read_jsonl(self.store)], ["L-0007"])
+        self.assertEqual([p.name for p in self.store.parent.iterdir()], ["lessons.jsonl"])
+
+
+def _git(cwd, *args):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+class PromoteParity(unittest.TestCase):
+    """CLI, API and MCP `promote` share one engine path that stages the review PR."""
+
+    def setUp(self):
+        import mnemosyne as mn
+
+        self.mn = mn
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.remote = root / "remote.git"
+        self.repo = root / "memory-repo"
+        self.repo.mkdir()
+        _git(root, "init", "-q", "--bare", str(self.remote))
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "config", "user.email", "alice@example.com")
+        _git(self.repo, "config", "user.name", "alice")
+        _git(self.repo, "config", "commit.gpgsign", "false")
+        _git(self.repo, "remote", "add", "origin", str(self.remote))
+        mn.core.init_repo(self.repo)
+        mn.core.render_lessons_md(mn.load_config(None, self.repo), self.repo)
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "init")
+        self.ids = [
+            mn.capture(f"Rule {n}", f"Always apply rule {n} when touching the {n} module.",
+                       tags=f"rule-{n}", repo=self.repo)["id"]
+            for n in ("alpha", "beta")
+        ]
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_promote_returns_the_staging_steps(self):
+        res = self.mn.promote(self.ids[0], repo=self.repo)
+        pr = res["pr"]
+        self.assertTrue(pr["is_git"])
+        self.assertFalse(pr["pushed"])
+        self.assertEqual(pr["branch"], f"reflexion/{self.ids[0]}")
+        self.assertEqual(len(pr["commands"]), 4)
+        self.assertIn(f"checkout -b reflexion/{self.ids[0]}", pr["commands"][0])
+        self.assertNotIn("local.jsonl", pr["commands"][1], "local.jsonl is gitignored; don't stage it")
+
+    def test_push_creates_branch_commits_and_pushes(self):
+        res = self.mn.promote(self.ids[0], push=True, repo=self.repo)
+        self.assertTrue(res["pr"]["pushed"], res["pr"]["error"])
+        branch = f"reflexion/{self.ids[0]}"
+        heads = subprocess.run(["git", "ls-remote", "--heads", str(self.remote), branch],
+                               capture_output=True, text=True, check=True).stdout
+        self.assertIn(branch, heads)
+        shown = subprocess.run(["git", "-C", str(self.repo), "show", f"{branch}:memory/lessons.jsonl"],
+                               capture_output=True, text=True, check=True).stdout
+        self.assertIn(self.ids[0], shown)
+
+    def test_push_failure_is_reported_not_swallowed(self):
+        _git(self.repo, "remote", "set-url", "origin", str(Path(self._tmp.name) / "missing.git"))
+        res = self.mn.promote(self.ids[0], push=True, repo=self.repo)
+        self.assertFalse(res["pr"]["pushed"])
+        self.assertIn("git push failed", res["pr"]["error"])
+
+    def test_cli_push_flag_uses_the_same_engine_path(self):
+        from mnemosyne.cli import main as cli_main
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli_main(["--repo", str(self.repo), "--format", "json", "promote", self.ids[0], "--push"])
+        self.assertEqual(rc, 0)
+        out = json.loads(buf.getvalue())
+        self.assertTrue(out["results"][0]["pr"]["pushed"], out)
+
+    def _load_mcp_server(self):
+        # Stub the optional `mcp` dependency so the tool functions import as plain callables.
+        fastmcp = types.ModuleType("mcp.server.fastmcp")
+
+        class FastMCP:
+            def __init__(self, name):
+                self.name = name
+
+            def tool(self):
+                return lambda fn: fn
+
+            def run(self):
+                pass
+
+        fastmcp.FastMCP = FastMCP
+        stubs = {"mcp": types.ModuleType("mcp"), "mcp.server": types.ModuleType("mcp.server"),
+                 "mcp.server.fastmcp": fastmcp}
+        with patch.dict(sys.modules, stubs):
+            sys.modules.pop("mnemosyne.mcp_server", None)
+            try:
+                return importlib.import_module("mnemosyne.mcp_server")
+            finally:
+                sys.modules.pop("mnemosyne.mcp_server", None)
+
+    def test_mcp_promote_takes_the_cli_options_and_stages_the_pr(self):
+        server = self._load_mcp_server()
+        params = inspect.signature(server.promote).parameters
+        self.assertEqual(list(params), ["lesson_ids", "to", "push"])
+        with patch.dict(os.environ, {"MNEMOSYNE_REPO": str(self.repo)}):
+            res = server.promote(",".join(self.ids))
+        self.assertTrue(res["same_repo"])
+        self.assertEqual([r["id"] for r in res["results"]], self.ids)
+        for r in res["results"]:
+            self.assertEqual(len(r["pr"]["commands"]), 4)
+            self.assertFalse(r["pr"]["pushed"])
+
+
+class SessionEndNudgeRemoved(unittest.TestCase):
+    """Claude Code discards SessionEnd output, so the plugin must not register a nudge there."""
+
+    def test_hooks_json_has_no_session_end(self):
+        hooks = json.loads((PLUGIN_HOOKS / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+        self.assertNotIn("SessionEnd", hooks)
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit"})
+
+    def test_stale_session_end_mode_is_a_silent_no_op(self):
+        # Give the hook everything the old nudge needed (an importable engine and a memory repo),
+        # so silence proves the mode is gone rather than that the hook failed open.
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "memory").mkdir()
+            env = dict(os.environ, PYTHONPATH=str(MNEMOSYNE_SRC), MNEMOSYNE_REPO=d)
+            proc = subprocess.run([sys.executable, str(PLUGIN_HOOKS / "mnemosyne_hook.py"), "session-end"],
+                                  input="{}", capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
 
 
 if __name__ == "__main__":

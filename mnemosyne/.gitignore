@@ -10,3 +10,4 @@ venv/
 # Runtime memory tiers (per-developer, never committed)
 memory/local.jsonl
 memory/usage.local.json
+memory/.*.tmp

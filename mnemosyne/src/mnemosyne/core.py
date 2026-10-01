@@ -16,6 +16,10 @@ TIERS
           recall time and written up to via `export`/`promote --to`. See stores.py.
 
 SOURCE OF TRUTH = the JSONL. memory/LESSONS.md is a generated human view (regenerated on write).
+
+DURABILITY  every rewrite of a store file goes through atomic_write_text: a temp file in the same
+          directory, fsynced, then os.replace'd over the original. A crash mid-save leaves the old
+          file intact (plus at worst a stray `.<name>.*.tmp`), never a truncated store.
 """
 from __future__ import annotations
 
@@ -24,7 +28,10 @@ import fnmatch
 import json
 import os
 import re
+import secrets
+import stat
 import subprocess
+import time
 from pathlib import Path
 
 from .config import BUNDLED_DIR, Config
@@ -136,12 +143,66 @@ def read_jsonl(p: Path):
     return out
 
 
+_REPLACE_RETRIES = 5
+
+
+def _fsync_dir(d: Path):
+    """Persist a rename on POSIX by fsyncing its directory. Windows has no directory handle to sync."""
+    if os.name == "nt":
+        return
+    try:
+        fd = os.open(str(d), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def atomic_write_text(p: Path, text: str):
+    """Replace `p` with `text` so a crash leaves the old file or the new one, never a torn mix.
+
+    Writes a temp file beside `p` (os.replace is only atomic within one filesystem), fsyncs it,
+    keeps `p`'s permission bits, then swaps it in. On any failure the temp file is removed and `p`
+    is untouched. On Windows a reader holding `p` open briefly blocks the swap, so the replace is
+    retried a few times before giving up."""
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.chmod(str(tmp), stat.S_IMODE(p.stat().st_mode))
+        except OSError:
+            pass  # no existing file (keep the umask default) or a filesystem without modes
+        for attempt in range(_REPLACE_RETRIES):
+            try:
+                os.replace(str(tmp), str(p))
+                break
+            except PermissionError:
+                if os.name != "nt" or attempt == _REPLACE_RETRIES - 1:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        try:
+            os.unlink(str(tmp))
+        except OSError:
+            pass
+        raise
+    _fsync_dir(p.parent)
+
+
 def write_jsonl(p: Path, lessons):
     lessons = sorted(lessons, key=lambda l: l.get("id", ""))
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("w", encoding="utf-8") as fh:
-        for l in lessons:
-            fh.write(json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n")
+    atomic_write_text(p, "".join(
+        json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n" for l in lessons))
 
 
 def load_all(repo: Path):
@@ -336,8 +397,7 @@ def bump_usage(repo: Path, ids):
             rec = usage.setdefault(i, {})
             rec["uses"] = int(rec.get("uses", 0)) + 1
             rec["last_recalled"] = now
-        usage_path(repo).parent.mkdir(parents=True, exist_ok=True)
-        usage_path(repo).write_text(json.dumps(usage, ensure_ascii=False, indent=0), encoding="utf-8")
+        atomic_write_text(usage_path(repo), json.dumps(usage, ensure_ascii=False, indent=0))
     except OSError:
         pass  # usage tracking is a nicety; never fail a recall over it
 
@@ -550,7 +610,7 @@ def render_lessons_md(cfg: Config, repo: Path):
             out.append(f"- _{' · '.join(meta)}_")
             out.append("")
     text = "\n".join(out).rstrip("\n") + "\n"  # single trailing newline; no MD012 at EOF
-    (repo / "memory" / "LESSONS.md").write_text(text, encoding="utf-8")
+    atomic_write_text(repo / "memory" / "LESSONS.md", text)
     return repo / "memory" / "LESSONS.md"
 
 
@@ -633,7 +693,7 @@ def validate(cfg: Config, repo: Path) -> dict:
         render_lessons_md(cfg, repo)
         if md.read_text(encoding="utf-8") != cur:
             stale = True
-            md.write_text(cur, encoding="utf-8")  # restore; don't mutate during validate
+            atomic_write_text(md, cur)  # restore; don't mutate during validate
     by_tier = {}
     for t in tier.values():
         by_tier[t] = by_tier.get(t, 0) + 1
@@ -850,7 +910,44 @@ def reflect(cfg: Config, repo: Path, fields: dict, *, force=False, supersede=Non
 # ----------------------------------------------------------------------------- promote / sync / prune
 
 
-def promote(cfg: Config, repo: Path, lesson_id: str) -> dict:
+# Committed store files a promotion touches. local.jsonl is gitignored by design, so it is not staged.
+_PR_PATHS = ("memory/lessons.jsonl", "memory/LESSONS.md")
+
+
+def stage_review_pr(repo: Path, branch: str, message: str, *, push=False) -> dict:
+    """Stage the review PR that gates a promotion, and optionally run the git steps.
+
+    Returns {"branch", "is_git", "commands", "pushed", "error"}. `commands` are the copy-pasteable
+    steps, always returned so every surface (CLI, MCP, API) can relay the same thing. With
+    push=True they are also run: create the branch, commit the store files, push to origin. It
+    stops at the first failing step and reports it in `error`. Opening and approving the PR stays
+    with a human; nothing here merges."""
+    code, _, _ = git(repo, "rev-parse", "--is-inside-work-tree")
+    out = {"branch": branch, "is_git": code == 0, "commands": [], "pushed": False, "error": None}
+    if code != 0:
+        return out
+    q = f'git -C "{repo}"'
+    out["commands"] = [
+        f"{q} checkout -b {branch}",
+        f"{q} add {' '.join(_PR_PATHS)}",
+        f'{q} commit -m "{message}"',
+        f"{q} push -u origin {branch} && gh pr create --fill --head {branch}",
+    ]
+    if push:
+        for args in (("checkout", "-b", branch), ("add", *_PR_PATHS), ("commit", "-m", message),
+                     ("push", "-u", "origin", branch)):
+            rc, _, err = git(repo, *args)
+            if rc != 0:
+                out["error"] = f"git {args[0]} failed: {err}"
+                return out
+        out["pushed"] = True
+    return out
+
+
+def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
+    """Move a local lesson to this repo's shared tier as review=proposed and stage its review PR.
+
+    The result's `pr` is stage_review_pr's report: the git steps, run as well when push=True."""
     local = read_jsonl(local_path(repo))
     by_id = {l["id"]: l for l in local}
     if lesson_id not in by_id:
@@ -863,25 +960,27 @@ def promote(cfg: Config, repo: Path, lesson_id: str) -> dict:
     write_jsonl(shared_path(repo), shared)
     write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
     render_lessons_md(cfg, repo)
-    code, _, _ = git(repo, "rev-parse", "--is-inside-work-tree")
-    return {"id": lesson_id, "title": lesson["title"], "branch": f"reflexion/{lesson_id}",
-            "is_git": code == 0}
+    branch = f"reflexion/{lesson_id}"
+    pr = stage_review_pr(repo, branch, f"reflexion: promote {lesson_id} — {lesson['title']}", push=push)
+    return {"id": lesson_id, "title": lesson["title"], "branch": branch, "is_git": pr["is_git"],
+            "pr": pr}
 
 
-def export(cfg: Config, repo: Path, lesson_ids, to_tier: str) -> dict:
+def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> dict:
     """Promote chosen local lessons UP to a broader shared store (team/enterprise, etc.).
 
     Each exported lesson is copied into the store under a NEW id in the store's own prefix and
     marked review=proposed; the local original is KEPT but marked proposed with a back-reference
     (`source.exported_to`) so recall's near-dup collapse hides the double and `sync` can retire it
     once the upstream copy is approved. Unlike recall, export is a WRITE and fails loudly if the
-    store is unreachable. Returns a dict the CLI uses to stage the review PR in the STORE repo."""
+    store is unreachable. The result's `pr` stages the review PR in the STORE repo (see
+    stage_review_pr); push=True also runs those git steps."""
     from . import stores as _stores
 
     if to_tier in (None, "shared"):
         # default path: same-repo local -> shared, one entry per id
         return {"tier": "shared", "same_repo": True,
-                "results": [promote(cfg, repo, lid) for lid in lesson_ids]}
+                "results": [promote(cfg, repo, lid, push=push) for lid in lesson_ids]}
 
     st = _stores.resolve_store(cfg, to_tier)
     if st is None:
@@ -927,10 +1026,12 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str) -> dict:
     remote_ids = [e["remote_id"] for e in exported]
     branch = (f"reflexion/{remote_ids[0]}" if len(remote_ids) == 1
               else f"reflexion/export-{to_tier}-{'-'.join(remote_ids)}") if remote_ids else None
-    code, _, _ = git(store_repo, "rev-parse", "--is-inside-work-tree")
+    pr = (stage_review_pr(store_repo, branch, f"reflexion: export to {to_tier} ({branch})", push=push)
+          if branch else None)
+    is_git = pr["is_git"] if pr else git(store_repo, "rev-parse", "--is-inside-work-tree")[0] == 0
     return {"tier": to_tier, "same_repo": False, "store_repo": str(store_repo),
             "exported": exported, "skipped": skipped, "branch": branch,
-            "is_git": code == 0}
+            "is_git": is_git, "pr": pr}
 
 
 def _retire_exported_on_merge(cfg: Config, repo: Path, fed_by_id: dict) -> list:
@@ -1094,7 +1195,7 @@ def init_repo(repo: Path, cfg_name: str | None = None) -> dict:
         sp.write_text("", encoding="utf-8")
     gi = repo / "memory" / ".gitignore"
     if not gi.exists():
-        gi.write_text("local.jsonl\nusage.local.json\n", encoding="utf-8")
+        gi.write_text("local.jsonl\nusage.local.json\n.*.tmp\n", encoding="utf-8")
     wrote_cfg = False
     if cfg_name:
         from .config import BUNDLED_DIR as _BD
