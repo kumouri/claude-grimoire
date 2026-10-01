@@ -123,8 +123,23 @@ directory, `fsync` it, then `os.replace` it over the original (and, on POSIX, `f
 so the rename itself survives a power cut). `os.replace` is atomic within one filesystem, so a
 process killed mid-save leaves either the old file or the new one, never a truncated store. On
 Windows a concurrent reader briefly holding the file open blocks the swap, so the replace retries a
-few times. Atomicity does not serialise writers: two processes rewriting the same file at once can
-still lose one update (last writer wins), though neither can corrupt the file.
+few times.
+
+**Serialised writers.** Atomicity alone does not stop a lost update: two processes that each read
+the store, add a lesson and swap the file in would leave only the second one's lesson. So every
+read-modify-write of a repo's store files (capture/reflect, promote, export, prune `--apply`,
+sync's retire-on-merge, the usage bump, rendering `LESSONS.md` and validate's render-and-restore)
+runs under `core.store_lock(repo)`, which holds the read, the change and the atomic write as one
+step. It is an OS lock on `memory/.store.lock` (`fcntl.flock` on POSIX, `msvcrt.locking` on
+Windows; stdlib only), not "the lockfile exists", so the kernel releases it when its holder exits
+or crashes: a dead holder never wedges the store and there is no stale-lock cleanup to race over.
+The lockfile is never deleted and is gitignored; it records the last holder's pid for diagnostics.
+The lock is re-entrant within a process, and `export` (which writes the primary repo and a store
+repo) takes both locks in sorted path order so two exports can't deadlock each other. A writer
+waits at most `MNEMOSYNE_LOCK_TIMEOUT` seconds (default 10), then fails with `LockTimeout` (CLI
+exit 4) naming the lock and its last holder. The usage bump is best-effort, so a recall that can't
+get the lock skips the bump rather than failing. Reads take no lock: the atomic swap means a reader
+always sees one whole version of each file.
 
 **Thin by design.** The agent never reads the store. It runs one command and relays the one-line
 result. All scanning, ranking, writing, git work, and validation live in the engine, keeping the

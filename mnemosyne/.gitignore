@@ -11,3 +11,4 @@ venv/
 memory/local.jsonl
 memory/usage.local.json
 memory/.*.tmp
+memory/.store.lock

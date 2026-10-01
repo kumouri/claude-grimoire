@@ -2,8 +2,9 @@
 
 Wraps mnemosyne's own zero-dependency self-test into the repo unittest suite, plus checks that the
 bundled configs load, the public API round-trips on a temp repo, a save that dies mid-write leaves
-the old store intact, `promote` stages (and with push, pushes) the same review PR from every
-surface, and the plugin no longer registers the dead SessionEnd nudge.
+the old store intact, concurrent writer processes lose no update and a dead lock holder never
+wedges the store, `promote` stages (and with push, pushes) the same review PR from every surface,
+and the plugin no longer registers the dead SessionEnd nudge.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import types
 import unittest
 from contextlib import redirect_stdout
@@ -145,6 +147,121 @@ class AtomicWrites(unittest.TestCase):
         self.core.write_jsonl(self.store, [_lesson(7)])
         self.assertEqual([l["id"] for l in self.core.read_jsonl(self.store)], ["L-0007"])
         self.assertEqual([p.name for p in self.store.parent.iterdir()], ["lessons.jsonl"])
+
+
+class StoreLock(unittest.TestCase):
+    """Concurrent saves serialise on the store lock; a dead holder never wedges it; waits are bounded."""
+
+    def setUp(self):
+        import mnemosyne as mn
+
+        self.mn = mn
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)  # cleanups run LIFO: after any lock-holding child is reaped
+        self.repo = Path(self._tmp.name) / "memory-repo"
+        mn.core.init_repo(self.repo)
+        self.lock = mn.core.lock_path(self.repo)
+
+    def _child(self, body):
+        return textwrap.dedent(f"""
+            import os, sys, time
+            sys.path.insert(0, {str(MNEMOSYNE_SRC)!r})
+            from pathlib import Path
+            import mnemosyne as mn
+            REPO = {str(self.repo)!r}
+        """) + textwrap.dedent(body)
+
+    def _hold_lock_in_child(self):
+        """Start a process that takes the lock and sleeps; return (proc, the pid that holds it)."""
+        proc = subprocess.Popen(
+            [sys.executable, "-c", self._child("""
+                with mn.core.store_lock(REPO):
+                    print(os.getpid(), flush=True)
+                    time.sleep(120)
+            """)], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        line = proc.stdout.readline()
+        proc.stdout.close()
+        self.assertTrue(line.strip(), "lock-holding child exited before taking the lock")
+        return proc, int(line)
+
+    def test_two_concurrent_writer_processes_lose_no_lesson(self):
+        n = 15
+        go = Path(self._tmp.name) / "go"
+        # Each writer pauses between reading the store and replacing it. Without the lock that
+        # widened window loses lessons on every run; with it the two writers must take turns.
+        writer = self._child(f"""
+            tag = sys.argv[1]
+            real_write = mn.core.write_jsonl
+            def slow_write(*args, **kwargs):
+                time.sleep(0.02)
+                return real_write(*args, **kwargs)
+            mn.core.write_jsonl = slow_write
+            while not Path({str(go)!r}).exists():
+                time.sleep(0.005)
+            for i in range({n}):
+                mn.capture(f"writer {{tag}} rule {{i}}",
+                           f"Writer {{tag}} must apply rule {{i}} to its own module.",
+                           force=True, repo=REPO)
+        """)
+        procs = [subprocess.Popen([sys.executable, "-c", writer, tag], stderr=subprocess.PIPE, text=True)
+                 for tag in ("a", "b")]
+        go.touch()  # release both writers at once so their saves overlap
+        for p in procs:
+            _, err = p.communicate(timeout=180)
+            self.assertEqual(p.returncode, 0, err)
+
+        lessons = self.mn.core.read_jsonl(self.mn.core.local_path(self.repo))
+        titles = {l["title"] for l in lessons}
+        expected = {f"writer {t} rule {i}" for t in ("a", "b") for i in range(n)}
+        self.assertEqual(titles, expected, f"lost {len(expected - titles)} of {2 * n} lessons")
+        self.assertEqual(len({l["id"] for l in lessons}), 2 * n, "two saves were given the same id")
+        md = (self.repo / "memory" / "LESSONS.md").read_text(encoding="utf-8")
+        self.assertIn(f"**{2 * n} active lesson(s)**", md)
+
+    def test_stale_lockfile_from_a_dead_pid_is_recovered(self):
+        dead = subprocess.Popen([sys.executable, "-c", "import os; print(os.getpid())"],
+                                stdout=subprocess.PIPE, text=True)
+        dead_pid = int(dead.communicate()[0])
+        self.lock.write_text(json.dumps({"pid": dead_pid, "since": "2026-01-01T00:00:00"}), encoding="utf-8")
+
+        saved = self.mn.capture("Recovered", "A dead holder's lockfile must not block a save.",
+                                force=True, repo=self.repo)
+        self.assertEqual(saved["action"], "saved")
+        self.assertEqual(self.mn.core.lock_holder(self.lock)["pid"], os.getpid())
+
+    def test_holder_killed_while_holding_does_not_wedge_the_lock(self):
+        proc, _ = self._hold_lock_in_child()
+        proc.kill()  # a crash: no release, no cleanup
+        proc.wait()
+        with self.mn.core.store_lock(self.repo, timeout=10):
+            pass
+
+    def test_wait_is_bounded_and_names_the_holder(self):
+        seed = self.mn.capture("Prefer feature flags for risky rollouts",
+                               "Wrap risky changes behind a feature flag and roll out gradually.",
+                               tags="feature-flag,rollback", repo=self.repo)
+        _, holder_pid = self._hold_lock_in_child()
+        start = time.monotonic()
+        with self.assertRaises(self.mn.LockTimeout) as cm:
+            with self.mn.core.store_lock(self.repo, timeout=0.3):
+                self.fail("took a lock another process holds")
+        self.assertLess(time.monotonic() - start, 5)
+        self.assertEqual(cm.exception.holder["pid"], holder_pid)
+        self.assertIn(f"pid {holder_pid}", str(cm.exception))
+        self.assertEqual(cm.exception.code, 4)
+
+        with patch.dict(os.environ, {"MNEMOSYNE_LOCK_TIMEOUT": "0.2"}):
+            with self.assertRaises(self.mn.LockTimeout):
+                self.mn.capture("Blocked", "A save must wait for the lock, then fail clearly.",
+                                force=True, repo=self.repo)
+            # recall's usage bump is best-effort: a held lock skips it rather than failing recall
+            hits = self.mn.recall("how should we do a risky rollout?", repo=self.repo)
+        self.assertIn(seed["id"], [h["id"] for h in hits])
+        self.assertEqual(self.mn.core.read_usage(self.repo), {})
+        self.assertEqual([l["id"] for l in self.mn.core.read_jsonl(self.mn.core.local_path(self.repo))],
+                         [seed["id"]])
 
 
 def _git(cwd, *args):

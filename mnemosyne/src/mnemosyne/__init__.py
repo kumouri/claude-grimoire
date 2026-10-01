@@ -30,11 +30,11 @@ from pathlib import Path
 
 from . import core
 from .config import Config, ConfigError, load_config, load_named_example
-from .core import EngineError, LowValueError, resolve_repo
+from .core import EngineError, LockTimeout, LowValueError, resolve_repo
 
 __all__ = [
     "recall", "capture", "reflect", "promote", "export", "prune", "hygiene", "validate",
-    "Config", "ConfigError", "EngineError", "LowValueError",
+    "Config", "ConfigError", "EngineError", "LockTimeout", "LowValueError",
     "load_config", "load_named_example", "resolve_repo",
 ]
 

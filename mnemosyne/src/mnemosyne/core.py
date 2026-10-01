@@ -20,10 +20,14 @@ SOURCE OF TRUTH = the JSONL. memory/LESSONS.md is a generated human view (regene
 DURABILITY  every rewrite of a store file goes through atomic_write_text: a temp file in the same
           directory, fsynced, then os.replace'd over the original. A crash mid-save leaves the old
           file intact (plus at worst a stray `.<name>.*.tmp`), never a truncated store.
+LOCKING   every read-modify-write of a repo's store files runs under store_lock(repo), an OS lock
+          on memory/.store.lock, so two processes saving at once serialise instead of one losing
+          the other's update. The OS drops the lock when its holder dies, so a crash never wedges it.
 """
 from __future__ import annotations
 
 import datetime as _dt
+import errno
 import fnmatch
 import json
 import os
@@ -31,7 +35,9 @@ import re
 import secrets
 import stat
 import subprocess
+import threading
 import time
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from .config import BUNDLED_DIR, Config
@@ -58,6 +64,21 @@ class LowValueError(EngineError):
             code=3,
         )
         self.matched = matched
+
+
+class LockTimeout(EngineError):
+    """Another process held a store lock for longer than the bounded wait. CLI maps to exit 4."""
+
+    def __init__(self, path, waited: float, holder: dict):
+        who = f"pid {holder['pid']}" if holder.get("pid") else "another process"
+        since = f" since {holder['since']}" if holder.get("since") else ""
+        super().__init__(
+            f"timed out after {waited:g}s waiting for the store lock {path} (last taken by {who}{since}). "
+            f"Another mnemosyne write is still running: retry, or raise MNEMOSYNE_LOCK_TIMEOUT.",
+            code=4,
+        )
+        self.path = str(path)
+        self.holder = holder
 
 
 # ----------------------------------------------------------------------------- hygiene constants
@@ -203,6 +224,135 @@ def write_jsonl(p: Path, lessons):
     lessons = sorted(lessons, key=lambda l: l.get("id", ""))
     atomic_write_text(p, "".join(
         json.dumps(l, ensure_ascii=False, separators=(",", ":")) + "\n" for l in lessons))
+
+
+# ----------------------------------------------------------------------------- store lock
+# Atomic writes stop a torn file; they don't stop two writers each reading the store, adding a
+# lesson and replacing it, so the second replace drops the first one's lesson. store_lock
+# serialises that read-modify-write per repo. It is a kernel lock (flock on POSIX, msvcrt byte-range
+# lock on Windows) on memory/.store.lock rather than "the lockfile exists": the OS releases it when
+# the holder exits or crashes, so there is no stale-lock cleanup to race over. The lockfile is never
+# deleted (deleting it would let two processes lock two different inodes) and records the last
+# holder's pid only for the timeout message.
+
+LOCK_NAME = ".store.lock"
+LOCK_TIMEOUT = 10.0  # seconds; MNEMOSYNE_LOCK_TIMEOUT overrides
+_LOCK_POLL = 0.02
+_WIN_LOCK_OFFSET = 1 << 30  # lock a byte far past the holder record so readers can still see it
+
+_held = {}            # lock path -> [fd, depth]: re-entry by the holding thread doesn't re-lock
+_thread_locks = {}    # lock path -> RLock: threads in one process take turns before the OS lock
+_registry = threading.Lock()
+
+if os.name == "nt":
+    import msvcrt
+
+    def _try_os_lock(fd) -> bool:
+        os.lseek(fd, _WIN_LOCK_OFFSET, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError as e:
+            if e.errno in (errno.EACCES, errno.EDEADLOCK):
+                return False
+            raise
+        return True
+
+    def _os_unlock(fd):
+        os.lseek(fd, _WIN_LOCK_OFFSET, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+else:
+    import fcntl
+
+    def _try_os_lock(fd) -> bool:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES):
+                return False
+            raise
+        return True
+
+    def _os_unlock(fd):
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+def lock_path(repo: Path) -> Path:
+    return Path(repo).resolve() / "memory" / LOCK_NAME
+
+
+def _lock_timeout() -> float:
+    try:
+        return max(0.0, float(os.environ.get("MNEMOSYNE_LOCK_TIMEOUT", LOCK_TIMEOUT)))
+    except ValueError:
+        return LOCK_TIMEOUT
+
+
+def lock_holder(path) -> dict:
+    """The holder record ({"pid", "since"}) last written into a lockfile, or {} if unreadable."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _os_lock(path: str, timeout: float) -> int:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        deadline = time.monotonic() + timeout
+        while not _try_os_lock(fd):
+            if time.monotonic() >= deadline:
+                raise LockTimeout(path, timeout, lock_holder(path))
+            time.sleep(_LOCK_POLL)
+        rec = json.dumps({"pid": os.getpid(), "since": _dt.datetime.now().isoformat(timespec="seconds")})
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, rec.encode("utf-8"))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+@contextmanager
+def _lock_one(path: str, timeout: float):
+    with _registry:
+        tl = _thread_locks.setdefault(path, threading.RLock())
+    if not tl.acquire(timeout=timeout):
+        raise LockTimeout(path, timeout, lock_holder(path))
+    try:
+        held = _held.get(path)
+        if held:
+            held[1] += 1
+        else:
+            held = _held[path] = [_os_lock(path, timeout), 1]
+        try:
+            yield
+        finally:
+            held[1] -= 1
+            if not held[1]:
+                del _held[path]
+                try:
+                    _os_unlock(held[0])
+                finally:
+                    os.close(held[0])
+    finally:
+        tl.release()
+
+
+@contextmanager
+def store_lock(*repos, timeout=None):
+    """Hold the write lock of each repo's store for the duration of a read-modify-write.
+
+    Waits up to `timeout` seconds (default MNEMOSYNE_LOCK_TIMEOUT, else LOCK_TIMEOUT) per lock, then
+    raises LockTimeout. Re-entrant: an engine call that already holds a repo's lock can call another
+    that takes it again. Several repos are locked in sorted path order, so two writers spanning the
+    same repos can't each hold one and wait on the other."""
+    timeout = _lock_timeout() if timeout is None else timeout
+    with ExitStack() as stack:
+        for path in sorted({str(lock_path(r)) for r in repos}):
+            stack.enter_context(_lock_one(path, timeout))
+        yield
 
 
 def load_all(repo: Path):
@@ -391,14 +541,15 @@ def bump_usage(repo: Path, ids):
     if not ids:
         return
     try:
-        usage = read_usage(repo)
-        now = today()
-        for i in ids:
-            rec = usage.setdefault(i, {})
-            rec["uses"] = int(rec.get("uses", 0)) + 1
-            rec["last_recalled"] = now
-        atomic_write_text(usage_path(repo), json.dumps(usage, ensure_ascii=False, indent=0))
-    except OSError:
+        with store_lock(repo):
+            usage = read_usage(repo)
+            now = today()
+            for i in ids:
+                rec = usage.setdefault(i, {})
+                rec["uses"] = int(rec.get("uses", 0)) + 1
+                rec["last_recalled"] = now
+            atomic_write_text(usage_path(repo), json.dumps(usage, ensure_ascii=False, indent=0))
+    except (OSError, LockTimeout):
         pass  # usage tracking is a nicety; never fail a recall over it
 
 
@@ -556,6 +707,11 @@ def render_digest(cfg: Config, ranked, repo, tier, fmt, budget) -> str:
 
 
 def render_lessons_md(cfg: Config, repo: Path):
+    with store_lock(repo):
+        return _render_lessons_md(cfg, repo)
+
+
+def _render_lessons_md(cfg: Config, repo: Path):
     lessons, tier = load_all(repo)
     lessons.sort(key=lambda l: l["id"])
     active = [l for l in lessons if l.get("status") == "active"]
@@ -688,12 +844,13 @@ def validate(cfg: Config, repo: Path) -> dict:
                 problems.append(f"{l['id']}: dangling ref {r}")
     md = repo / "memory" / "LESSONS.md"
     stale = False
-    if md.exists():
-        cur = md.read_text(encoding="utf-8")
-        render_lessons_md(cfg, repo)
-        if md.read_text(encoding="utf-8") != cur:
-            stale = True
-            atomic_write_text(md, cur)  # restore; don't mutate during validate
+    with store_lock(repo):  # the render-and-restore must not overwrite a concurrent save's render
+        if md.exists():
+            cur = md.read_text(encoding="utf-8")
+            render_lessons_md(cfg, repo)
+            if md.read_text(encoding="utf-8") != cur:
+                stale = True
+                atomic_write_text(md, cur)  # restore; don't mutate during validate
     by_tier = {}
     for t in tier.values():
         by_tier[t] = by_tier.get(t, 0) + 1
@@ -823,7 +980,16 @@ def build_lesson(cfg: Config, lessons, fields: dict, category_default, memory_de
 
 def capture(cfg: Config, repo: Path, fields: dict, *, category_default="decision",
             memory_default="semantic", force=False, supersede=None) -> dict:
-    """Build + save a lesson to local (or shared). Returns a result dict describing what happened."""
+    """Build + save a lesson to local (or shared). Returns a result dict describing what happened.
+
+    The whole read (next id, dedup) through write runs under the repo's store lock."""
+    with store_lock(repo):
+        return _capture(cfg, repo, fields, category_default=category_default,
+                        memory_default=memory_default, force=force, supersede=supersede)
+
+
+def _capture(cfg: Config, repo: Path, fields: dict, *, category_default, memory_default, force,
+             supersede) -> dict:
     lessons, tier = load_all(repo)
     lesson, shared = build_lesson(cfg, lessons, fields, category_default, memory_default)
 
@@ -948,18 +1114,19 @@ def promote(cfg: Config, repo: Path, lesson_id: str, *, push=False) -> dict:
     """Move a local lesson to this repo's shared tier as review=proposed and stage its review PR.
 
     The result's `pr` is stage_review_pr's report: the git steps, run as well when push=True."""
-    local = read_jsonl(local_path(repo))
-    by_id = {l["id"]: l for l in local}
-    if lesson_id not in by_id:
-        raise EngineError(f"{lesson_id} is not in the local tier (only local lessons can be promoted)")
-    lesson = by_id[lesson_id]
-    lesson["review"] = {"state": "proposed"}
-    lesson["updated"] = today()
-    shared = read_jsonl(shared_path(repo))
-    shared.append(lesson)
-    write_jsonl(shared_path(repo), shared)
-    write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
-    render_lessons_md(cfg, repo)
+    with store_lock(repo):
+        local = read_jsonl(local_path(repo))
+        by_id = {l["id"]: l for l in local}
+        if lesson_id not in by_id:
+            raise EngineError(f"{lesson_id} is not in the local tier (only local lessons can be promoted)")
+        lesson = by_id[lesson_id]
+        lesson["review"] = {"state": "proposed"}
+        lesson["updated"] = today()
+        shared = read_jsonl(shared_path(repo))
+        shared.append(lesson)
+        write_jsonl(shared_path(repo), shared)
+        write_jsonl(local_path(repo), [l for l in local if l["id"] != lesson_id])
+        render_lessons_md(cfg, repo)
     branch = f"reflexion/{lesson_id}"
     pr = stage_review_pr(repo, branch, f"reflexion: promote {lesson_id} — {lesson['title']}", push=push)
     return {"id": lesson_id, "title": lesson["title"], "branch": branch, "is_git": pr["is_git"],
@@ -992,36 +1159,37 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> 
     if store_repo is None:
         raise EngineError(f"cannot reach store '{to_tier}' to export: {note}")
 
-    local = read_jsonl(local_path(repo))
-    local_by_id = {l["id"]: l for l in local}
-    store_lessons = read_jsonl(shared_path(store_repo))
+    with store_lock(store_repo, repo):
+        local = read_jsonl(local_path(repo))
+        local_by_id = {l["id"]: l for l in local}
+        store_lessons = read_jsonl(shared_path(store_repo))
 
-    exported, skipped = [], []
-    for lid in lesson_ids:
-        orig = local_by_id.get(lid)
-        if orig is None:
-            skipped.append({"id": lid, "reason": "not in the local tier (only local lessons can be exported)"})
-            continue
-        copy = json.loads(json.dumps(orig))  # deep copy
-        remote_id = _stores.next_store_id(st, store_lessons)
-        copy["id"] = remote_id
-        copy["review"] = {"state": "proposed"}
-        copy["created"] = today()
-        copy["updated"] = today()
-        copy.setdefault("source", {})["exported_from"] = lid
-        copy.pop("superseded_by", None)
-        copy["status"] = "active"
-        store_lessons.append(copy)
-        orig["review"] = {"state": "proposed"}
-        orig["updated"] = today()
-        orig.setdefault("source", {})["exported_to"] = {"tier": to_tier, "remote_id": remote_id}
-        exported.append({"local_id": lid, "remote_id": remote_id, "title": orig.get("title", "")})
+        exported, skipped = [], []
+        for lid in lesson_ids:
+            orig = local_by_id.get(lid)
+            if orig is None:
+                skipped.append({"id": lid, "reason": "not in the local tier (only local lessons can be exported)"})
+                continue
+            copy = json.loads(json.dumps(orig))  # deep copy
+            remote_id = _stores.next_store_id(st, store_lessons)
+            copy["id"] = remote_id
+            copy["review"] = {"state": "proposed"}
+            copy["created"] = today()
+            copy["updated"] = today()
+            copy.setdefault("source", {})["exported_from"] = lid
+            copy.pop("superseded_by", None)
+            copy["status"] = "active"
+            store_lessons.append(copy)
+            orig["review"] = {"state": "proposed"}
+            orig["updated"] = today()
+            orig.setdefault("source", {})["exported_to"] = {"tier": to_tier, "remote_id": remote_id}
+            exported.append({"local_id": lid, "remote_id": remote_id, "title": orig.get("title", "")})
 
-    if exported:
-        write_jsonl(shared_path(store_repo), store_lessons)
-        render_lessons_md(cfg, store_repo)
-        write_jsonl(local_path(repo), local)
-        render_lessons_md(cfg, repo)
+        if exported:
+            write_jsonl(shared_path(store_repo), store_lessons)
+            render_lessons_md(cfg, store_repo)
+            write_jsonl(local_path(repo), local)
+            render_lessons_md(cfg, repo)
 
     remote_ids = [e["remote_id"] for e in exported]
     branch = (f"reflexion/{remote_ids[0]}" if len(remote_ids) == 1
@@ -1036,6 +1204,11 @@ def export(cfg: Config, repo: Path, lesson_ids, to_tier: str, *, push=False) -> 
 
 def _retire_exported_on_merge(cfg: Config, repo: Path, fed_by_id: dict) -> list:
     """Retire local originals whose exported copy is now approved upstream. Returns retired ids."""
+    with store_lock(repo):
+        return _retire_exported_locked(repo, fed_by_id)
+
+
+def _retire_exported_locked(repo: Path, fed_by_id: dict) -> list:
     retired = []
     for tf in (shared_path(repo), local_path(repo)):
         rows = read_jsonl(tf)
@@ -1084,6 +1257,13 @@ def sync(cfg: Config, repo: Path) -> dict:
 def prune(cfg: Config, repo: Path, *, apply=False, cap=None, max_age_days=None) -> dict:
     cap = cfg.prune_cap if cap is None else cap
     max_age_days = cfg.prune_max_age_days if max_age_days is None else max_age_days
+    if not apply:
+        return _prune(cfg, repo, False, cap, max_age_days)
+    with store_lock(repo):
+        return _prune(cfg, repo, True, cap, max_age_days)
+
+
+def _prune(cfg: Config, repo: Path, apply, cap, max_age_days) -> dict:
     lessons, tier = load_all(repo)
     usage = read_usage(repo)
     today_d = _dt.date.today()
@@ -1195,7 +1375,7 @@ def init_repo(repo: Path, cfg_name: str | None = None) -> dict:
         sp.write_text("", encoding="utf-8")
     gi = repo / "memory" / ".gitignore"
     if not gi.exists():
-        gi.write_text("local.jsonl\nusage.local.json\n.*.tmp\n", encoding="utf-8")
+        gi.write_text("local.jsonl\nusage.local.json\n.*.tmp\n.store.lock\n", encoding="utf-8")
     wrote_cfg = False
     if cfg_name:
         from .config import BUNDLED_DIR as _BD

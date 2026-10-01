@@ -145,7 +145,8 @@ Everything is also available as the Python API (`mn.recall/capture/reflect/promo
 and as MCP tools.
 
 Environment: `MNEMOSYNE_REPO` (primary repo), `MNEMOSYNE_CONFIG` (config path), `MNEMOSYNE_AUTHOR`
-(lesson author), and `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`).
+(lesson author), `MNEMOSYNE_CACHE` (where url-stores are cloned; default `~/.mnemosyne/stores`),
+and `MNEMOSYNE_LOCK_TIMEOUT` (seconds a save waits for the store lock; default 10).
 
 ## Layout
 
@@ -173,6 +174,13 @@ Every save is **atomic**: the engine writes a temp file beside the target, fsync
 in with `os.replace`, so a process that dies mid-save leaves the previous store intact rather than
 a truncated one. A crash can at worst leave a stray `memory/.*.tmp`, which is gitignored and safe
 to delete.
+
+Saves are also **serialised**: each one holds an OS lock on `memory/.store.lock` (gitignored) from
+read to write, so two agents or terminals saving at once both keep their lessons. The OS drops the
+lock if its holder crashes. A save waits up to `MNEMOSYNE_LOCK_TIMEOUT` seconds (default 10) and
+then exits 4 with an error naming the holder; see [`docs/design.md`](docs/design.md) for details.
+A memory repo scaffolded by an older `mnemosyne init` should add `.store.lock` to its
+`memory/.gitignore`.
 
 ## Tiers & transparency
 
