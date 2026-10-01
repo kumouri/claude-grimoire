@@ -60,7 +60,7 @@ Ceryce, Telegram, 2026-09-27 01:10 CT, from the todo that motivated both extensi
 **What this did not cover:** the scripts' internals beyond what their docstrings and the README
 table describe (`run-local-gates.py`'s per-toolchain discovery logic was not read line-by-line);
 Amphion's skills, beyond the parts of the Zethus README that describe the shared vocabulary; any
-code outside `claude-grimoire`. The parked research on shipping Zethus as a Copilot plugin
+code outside `mesmer-grimoire`. The parked research on shipping Zethus as a Copilot plugin
 (`2026-09-24-copilot-plugin-packaging.md`, not part of this repo) was read for compatibility only.
 
 ## Design

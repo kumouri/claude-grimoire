@@ -80,9 +80,9 @@ There are two modes. Pick one per machine and repo; they don't need each other.
 ### Install into a repository
 
 ```bash
-git clone https://github.com/kumouri/claude-grimoire.git
-python claude-grimoire/zethus/install.py --target path/to/your-repo --dry-run   # see the plan
-python claude-grimoire/zethus/install.py --target path/to/your-repo
+git clone https://github.com/kumouri/mesmer-grimoire.git
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo --dry-run   # see the plan
+python mesmer-grimoire/zethus/install.py --target path/to/your-repo
 ```
 
 Then, in the target repo:
@@ -105,9 +105,9 @@ Amphion's skill of that name. User mode removes files that left the kit by itsel
 ### Install for your user account (every repo, no commit)
 
 ```bash
-python claude-grimoire/zethus/install.py --user --dry-run   # see the plan
-python claude-grimoire/zethus/install.py --user
-python claude-grimoire/zethus/install.py --user --uninstall # later, to remove it
+python mesmer-grimoire/zethus/install.py --user --dry-run   # see the plan
+python mesmer-grimoire/zethus/install.py --user
+python mesmer-grimoire/zethus/install.py --user --uninstall # later, to remove it
 ```
 
 Add `--jetbrains-legacy` only for an older JetBrains Copilot plugin that doesn't read
@@ -493,7 +493,7 @@ Unlike the rest of this kit, these two skills also work unmodified under Claude 
 
 [Apache-2.0](../LICENSE) © 2026 Ceryce Armstrong
 
-[amphion]: https://github.com/kumouri/claude-grimoire/tree/develop/amphion
+[amphion]: https://github.com/kumouri/mesmer-grimoire/tree/develop/amphion
 [gh-repo-instructions]: https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions
 [gh-instructions-support]: https://docs.github.com/en/copilot/reference/custom-instructions-support
 [vsc-instructions]: https://code.visualstudio.com/docs/copilot/customization/custom-instructions

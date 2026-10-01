@@ -1,11 +1,15 @@
-# 🔮 claude-grimoire
+# 🔮 mesmer-grimoire
 
 [![made by kumouri](https://img.shields.io/badge/made%20by-kumouri-8e00ff?style=flat-square)](https://github.com/kumouri)
 [![license: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-00ff0f?style=flat-square)](LICENSE)
 [![Git Flow](https://img.shields.io/badge/workflow-git--flow-8e00ff?style=flat-square)](#-git-flow)
 
-> A grimoire of Claude Code creations — the skills, hooks, slash commands, and agents I
-> conjure up that don't belong to any other project.
+> A grimoire of spells for the mind of an AI — the skills, hooks, slash commands, agents, and
+> kits I conjure up that don't belong to any other project.
+
+**Formerly `claude-grimoire`** — renamed because it's no longer Claude-specific (see
+[Zethus](zethus/), a GitHub Copilot kit). A *mesmer* is one who mesmerizes: the word comes from
+Franz Anton Mesmer, and in EverQuest it's the enchanter's craft of "mezzing" a mind.
 
 This is a curated showcase of the [Claude Code](https://claude.com/claude-code) extensions I
 build for myself: reusable **skills**, automation **hooks**, custom **slash commands**, and
@@ -92,8 +96,8 @@ python -m unittest discover -s scripts -p "test_check_doc_pointers.py" -t script
 [`scripts/check_identifiers.py`](scripts/check_identifiers.py) is a blocking CI step that
 scans every tracked text file for machine-specific identifiers: Windows user-profile paths
 (`C:\Users\<name>\…`), other drive-absolute paths, POSIX home directories (`/home/<name>/`,
-`/Users/<name>/`), WSL drive mounts, this project's GitHub URL under the wrong org, and
-email addresses outside a small justified allowlist.
+`/Users/<name>/`), WSL drive mounts, this project's GitHub URL under the wrong org or its
+retired `claude-grimoire` name, and email addresses outside a small justified allowlist.
 
 Run it and its tests locally:
 

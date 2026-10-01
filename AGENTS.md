@@ -8,7 +8,8 @@ Maintainer guidance for any coding agent working in this repo. This file is the 
 A personal collection ("grimoire") of standalone AI coding-agent artifacts (skills, hooks,
 commands, agents, MCP servers and plugins) that don't belong to any other project. It showcases
 Ceryce's work on her portfolio, so each artifact should be self-contained, documented and
-presentable.
+presentable. It was formerly `claude-grimoire`; the identifier guard rejects links that still use
+the old name.
 
 ## Where things go
 
