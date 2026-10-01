@@ -92,6 +92,12 @@ and stages a PR. A reviewer approves before it becomes team-wide, so one bad les
 poison everyone — the cost of a wrong shared lesson is high (it steers every future run), so it
 gets a human gate. Agent proposes, human disposes.
 
+Staging lives in the engine (`core.stage_review_pr`), not in any one surface, so the CLI, the MCP
+`promote` tool and `mn.promote()` behave identically: each returns the git steps that stage the
+review PR (branch, add, commit, push), and with `push` set runs them, stopping at the first failing
+step. Only the committed files are staged; `local.jsonl` is gitignored by design. Nothing in the
+engine opens or merges the PR.
+
 **Broader tiers (federation).** Beyond its own local+shared tiers, a repo can federate with
 additional **stores** — separate mnemosyne memory repos declared in `config.stores`, each a broader
 shared tier (e.g. `team`, `enterprise`). A store is addressed by a git **url** (mnemosyne clones it
@@ -110,6 +116,30 @@ Usage tracking always writes to the primary gitignored sidecar; stores are read-
 Lessons are authored **only through the engine** — never hand-edited — which keeps ids, stamps,
 dedup, supersession, and the rendered view consistent. `mnemosyne validate` enforces the schema
 and spine consistency.
+
+**Crash-safe writes.** Every rewrite of a store file (`lessons.jsonl`, `local.jsonl`, the usage
+sidecar, `LESSONS.md`) goes through `core.atomic_write_text`: write a temp file in the same
+directory, `fsync` it, then `os.replace` it over the original (and, on POSIX, `fsync` the directory
+so the rename itself survives a power cut). `os.replace` is atomic within one filesystem, so a
+process killed mid-save leaves either the old file or the new one, never a truncated store. On
+Windows a concurrent reader briefly holding the file open blocks the swap, so the replace retries a
+few times.
+
+**Serialised writers.** Atomicity alone does not stop a lost update: two processes that each read
+the store, add a lesson and swap the file in would leave only the second one's lesson. So every
+read-modify-write of a repo's store files (capture/reflect, promote, export, prune `--apply`,
+sync's retire-on-merge, the usage bump, rendering `LESSONS.md` and validate's render-and-restore)
+runs under `core.store_lock(repo)`, which holds the read, the change and the atomic write as one
+step. It is an OS lock on `memory/.store.lock` (`fcntl.flock` on POSIX, `msvcrt.locking` on
+Windows; stdlib only), not "the lockfile exists", so the kernel releases it when its holder exits
+or crashes: a dead holder never wedges the store and there is no stale-lock cleanup to race over.
+The lockfile is never deleted and is gitignored; it records the last holder's pid for diagnostics.
+The lock is re-entrant within a process, and `export` (which writes the primary repo and a store
+repo) takes both locks in sorted path order so two exports can't deadlock each other. A writer
+waits at most `MNEMOSYNE_LOCK_TIMEOUT` seconds (default 10), then fails with `LockTimeout` (CLI
+exit 4) naming the lock and its last holder. The usage bump is best-effort, so a recall that can't
+get the lock skips the bump rather than failing. Reads take no lock: the atomic swap means a reader
+always sees one whole version of each file.
 
 **Thin by design.** The agent never reads the store. It runs one command and relays the one-line
 result. All scanning, ranking, writing, git work, and validation live in the engine, keeping the

@@ -25,7 +25,8 @@ work and reflects feedback into new lessons so the same miss never happens twice
 
 ## Setup
 
-The engine is the `mnemosyne` CLI (`pip install mnemosyne-reflexion`, or run `python -m mnemosyne`).
+The engine is the `mnemosyne` CLI (or `python -m mnemosyne`). It is not on PyPI yet; install it with
+`pip install "git+https://github.com/kumouri/mesmer-grimoire#subdirectory=mnemosyne"`.
 It reads/writes a **memory repo** (a directory with a `memory/` folder). Point at it with the
 `MNEMOSYNE_REPO` environment variable, or run commands with `--repo <path>`. Create one with
 `mnemosyne --repo <path> init --example software-eng` (the `--example` seeds a config with useful

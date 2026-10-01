@@ -10,7 +10,10 @@ Modes:
   prompt         (UserPromptSubmit) recall lessons for the user's prompt; print the digest,
                  which Claude Code injects as additional context. Silent when nothing matches.
   session-start  (SessionStart)     git-pull the shared memory so lessons are fresh. Silent.
-  session-end    (SessionEnd)       one-line reminder to /reflect on anything durable learned.
+
+There is no session-end mode: Claude Code discards SessionEnd hook output, so a "remember to
+/reflect" reminder there would never be seen. Any other mode (including a stale `session-end`
+from an older hooks.json) is a silent no-op.
 
 Point it at a memory repo with $MNEMOSYNE_REPO (else it uses the cwd, and stays silent if
 that isn't a memory repo). Optional $MNEMOSYNE_CONFIG selects a config.
@@ -67,22 +70,7 @@ def do_session_start():
     return 0
 
 
-def do_session_end():
-    mn = _mn()
-    if mn is None:
-        return 0
-    # Only nudge if there's actually a memory repo to write to.
-    try:
-        from mnemosyne import resolve_repo
-        resolve_repo(None)
-    except Exception:
-        return 0
-    print("[Mnemosyne] If this session settled a decision or hit a real, reusable pitfall, "
-          "capture it with /reflect (or /mnemosyne-reflect) so the next run recalls it.")
-    return 0
-
-
-MODES = {"prompt": do_prompt, "session-start": do_session_start, "session-end": do_session_end}
+MODES = {"prompt": do_prompt, "session-start": do_session_start}
 
 
 def main():
